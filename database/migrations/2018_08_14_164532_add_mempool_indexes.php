@@ -19,6 +19,8 @@ class AddMempoolIndexes extends Migration
         Schema::table('mempool', function (Blueprint $table) {
             $table->index(['src', 'peer', 'val']);
         });
+
+        DB::table('config')->where('cfg', 'dbversion')->update(['val' => 4]);
     }
 
     /**
@@ -31,5 +33,7 @@ class AddMempoolIndexes extends Migration
         Schema::table('mempool', function (Blueprint $table) {
             $table->dropIndex(['src', 'peer', 'val']);
         });
+
+        DB::table('config')->where('cfg', 'dbversion')->update(['val' => 3]);
     }
 }
