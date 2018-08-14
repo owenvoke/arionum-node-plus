@@ -20,7 +20,8 @@ class AddMempoolIndexes extends Migration
             $table->index(['src', 'peer', 'val']);
         });
 
-        DB::table('config')->where('cfg', 'dbversion')->update(['val' => 4]);
+        // For some reason AroDev jumped to v5 here...
+        DB::table('config')->where('cfg', 'dbversion')->update(['val' => 5]);
     }
 
     /**
