@@ -2,13 +2,13 @@
 
 namespace Tests\Unit\Helpers;
 
-use App\Helpers\Keys;
+use App\Helpers\Key;
 use Tests\TestCase;
 
 /**
- * Class EllipticCurveTest
+ * Class KeyTest
  */
-class KeysTest extends TestCase
+class KeyTest extends TestCase
 {
     /**
      * @test
@@ -16,10 +16,10 @@ class KeysTest extends TestCase
      */
     public function itCanConvertAnAroPrivateKeyToPem()
     {
-        $result = Keys::aroBase58ToPem(env('TEST_KEY_PRIVATE'), true);
+        $result = Key::aroBase58ToPem(env('TEST_KEY_PRIVATE'), true);
 
         $this->assertInternalType('string', $result);
-        $this->assertRegExp('/^'.Keys::EC_PRIVATE_START.'([\s\S]+?)'.Keys::EC_PRIVATE_END.'$/m', $result);
+        $this->assertRegExp('/^'.Key::EC_PRIVATE_START.'([\s\S]+?)'.Key::EC_PRIVATE_END.'$/m', $result);
     }
 
     /**
@@ -28,10 +28,10 @@ class KeysTest extends TestCase
      */
     public function itCanConvertAnAroPublicKeyToPem()
     {
-        $result = Keys::aroBase58ToPem(env('TEST_KEY_PUBLIC'));
+        $result = Key::aroBase58ToPem(env('TEST_KEY_PUBLIC'));
 
         $this->assertInternalType('string', $result);
-        $this->assertRegExp('/^'.Keys::EC_PUBLIC_START.'([\s\S]+?)'.Keys::EC_PUBLIC_END.'$/m', $result);
+        $this->assertRegExp('/^'.Key::EC_PUBLIC_START.'([\s\S]+?)'.Key::EC_PUBLIC_END.'$/m', $result);
     }
 
     /**
@@ -48,7 +48,7 @@ KF5JE9DN5Q5lp5wyEbvobAfWC0bB/A==
 -----END PUBLIC KEY-----
 PEM;
 
-        $result = Keys::pemToAroBase58($pem);
+        $result = Key::pemToAroBase58($pem);
 
         $this->assertInternalType('string', $result);
         $this->assertEquals(env('TEST_KEY_PRIVATE'), $result);
@@ -67,7 +67,7 @@ EIf4FyedWfQFGpNyyRxt/ydUKF5JE9DN5Q5lp5wyEbvobAfWC0bB/A==
 -----END PUBLIC KEY-----
 PEM;
 
-        $result = Keys::pemToAroBase58($pem);
+        $result = Key::pemToAroBase58($pem);
 
         $this->assertInternalType('string', $result);
         $this->assertEquals(env('TEST_KEY_PUBLIC'), $result);
