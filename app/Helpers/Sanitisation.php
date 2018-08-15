@@ -11,7 +11,7 @@ class Sanitisation
      * @param string $input
      * @return string
      */
-    public function sanitiseAlphanumeric(string $input): string
+    public static function sanitiseAlphanumeric(string $input): string
     {
         return preg_replace('/[^a-z0-9]/i', '', $input);
     }
@@ -20,7 +20,7 @@ class Sanitisation
      * @param string $address
      * @return string
      */
-    public function sanitiseIpAddress(string $address): string
+    public static function sanitiseIpAddress(string $address): string
     {
         return preg_replace('/[^a-f0-9\[\]\.\:]/i', '', $address);
     }
@@ -29,7 +29,7 @@ class Sanitisation
      * @param string $address
      * @return string
      */
-    public function sanitiseHostname(string $address): string
+    public static function sanitiseHostname(string $address): string
     {
         return preg_replace('/[^a-z0-9\.\-\:\/]/i', '', $address);
     }
