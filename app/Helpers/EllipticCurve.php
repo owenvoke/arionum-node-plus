@@ -14,9 +14,9 @@ class EllipticCurve
      * @param string $key
      * @return string
      */
-    public function sign(string $data, string $key): string
+    public static function sign(string $data, string $key): string
     {
-        $privateKey = app(Keys::class)->coinToPem($key, true);
+        $privateKey = Keys::aroBase58ToPem($key, true);
         $privateKeyId = openssl_pkey_get_private($privateKey);
         openssl_sign($data, $signature, $privateKeyId, OPENSSL_ALGO_SHA256);
 
@@ -29,9 +29,9 @@ class EllipticCurve
      * @param string $key
      * @return bool
      */
-    public function verify(string $data, string $signature, string $key): bool
+    public static function verify(string $data, string $signature, string $key): bool
     {
-        $publicKey = app(Keys::class)->coinToPem($key);
+        $publicKey = Keys::aroBase58ToPem($key);
         $signature = app(Base58::class)->encode($signature);
         $publicKeyId = openssl_pkey_get_public($publicKey);
 
