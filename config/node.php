@@ -9,7 +9,7 @@ return [
     */
 
     // Allow others to connect to the node api.
-    'public_api'                       => true,
+    'public_api'                       => env('NODE_PUBLIC_API', true),
 
     // Hosts that are allowed to mine on this node if not a public API.
     'allowed_hosts'                    => [
@@ -17,10 +17,10 @@ return [
     ],
 
     // To avoid any problems if other clones are made.
-    'coin'                             => 'arionum',
+    'coin'                             => env('NODE_COIN', 'arionum'),
 
     // Enable testnet mode for development.
-    'testnet'                          => false,
+    'testnet'                          => env('NODE_TESTNET', false),
 
     /*
     |--------------------------------------------------------------------------
@@ -29,7 +29,7 @@ return [
     */
 
     // Maximum number of connected peers.
-    'peer_maximum'                     => 30,
+    'peer_maximum'                     => env('NODE_MAX_PEERS', 30),
 
     // The number of peers to broadcast each new transaction to.
     'peer_transaction_propagation'     => 5,
@@ -62,7 +62,7 @@ return [
     'sanity_recheck_blocks'            => 10,
 
     // The interval to run the sanity in seconds.
-    'sanity_interval'                  => 900,
+    'sanity_interval'                  => env('NODE_SANITY_INTERVAL', 900),
 
     // Enable setting a new hostname (should be used only if you want to change the hostname).
     'sanity_allow_hostname_change'     => false,
