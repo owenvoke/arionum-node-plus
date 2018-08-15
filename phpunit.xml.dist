@@ -31,5 +31,11 @@
         <env name="MAIL_DRIVER" value="array"/>
         <env name="DB_CONNECTION" value="sqlite"/>
         <env name="DB_DATABASE" value=":memory:"/>
+
+        <!-- Arionum Test Keys -->
+        <env name="TEST_KEY_PRIVATE"
+             value="Lzhp9LopCN52nowTXeeYixvrfHTJA1geEDuc7tg9Xyovg89rkwJ4sAbyhuu9h69n9fcFhN7814oA1QnDaS8wJ8ZPFrSL33ekezantdR9aW3WiHm3wM7ZtGxRTjs5BVzabzJ6AfHmmSBCackXkKBdsKo6swtqVqMUF"/>
+        <env name="TEST_KEY_PUBLIC"
+             value="PZ8Tyr4Nx8MHsRAGMpZmZ6TWY63dXWSD1BMH8hd16tLkJWkpFAKV9UzeroAquAGP7rWzPk18SM5i7aPszwfBA7AaSMJy4i42hq7Bb7D8UZxe2WjTHmqeyVEB"/>
     </php>
 </phpunit>
