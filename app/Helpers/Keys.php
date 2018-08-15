@@ -9,10 +9,10 @@ use StephenHill\Base58;
  */
 class Keys
 {
-    private const EC_PUBLIC_START = '-----BEGIN PUBLIC KEY-----';
-    private const EC_PUBLIC_END = '-----END PUBLIC KEY-----';
-    private const EC_PRIVATE_START = '-----BEGIN EC PRIVATE KEY-----';
-    private const EC_PRIVATE_END = '-----END EC PRIVATE KEY-----';
+    public const EC_PUBLIC_START = '-----BEGIN PUBLIC KEY-----';
+    public const EC_PUBLIC_END = '-----END PUBLIC KEY-----';
+    public const EC_PRIVATE_START = '-----BEGIN EC PRIVATE KEY-----';
+    public const EC_PRIVATE_END = '-----END EC PRIVATE KEY-----';
 
     /**
      * @param string $data
