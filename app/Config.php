@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $cfg
  * @property string $val
  */
-class Config extends Model
+final class Config extends Model
 {
     /**
      * @var bool

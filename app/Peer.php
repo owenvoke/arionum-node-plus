@@ -17,7 +17,7 @@ use Illuminate\Support\Carbon;
  * @property int    $fails
  * @property int    $stuckfail
  */
-class Peer extends Model
+final class Peer extends Model
 {
     /**
      * @var bool

@@ -13,7 +13,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property float  $balance
  * @property string $alias
  */
-class Account extends Model
+final class Account extends Model
 {
     /**
      * @var bool

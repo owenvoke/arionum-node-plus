@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property int    $fails
  * @property int    $status
  */
-class Masternode extends Model
+final class Masternode extends Model
 {
     /**
      * @var bool

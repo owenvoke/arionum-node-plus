@@ -21,7 +21,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon $date
  * @property string $peer
  */
-class Mempool extends Model
+final class Mempool extends Model
 {
     /**
      * @var bool

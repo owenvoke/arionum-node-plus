@@ -18,7 +18,7 @@ use Illuminate\Support\Carbon;
  * @property string $argon
  * @property int    $transactions
  */
-class Block extends Model
+final class Block extends Model
 {
     /**
      * @var bool
