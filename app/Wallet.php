@@ -7,7 +7,7 @@ use StephenHill\Base58;
 /**
  * Class Wallet
  */
-class Wallet
+final class Wallet
 {
     /**
      * The wallet configuration parameters.
@@ -16,6 +16,11 @@ class Wallet
         'curve_name'       => 'secp256k1',
         'private_key_type' => OPENSSL_KEYTYPE_EC,
     ];
+
+    /**
+     * The number of times to SHA512 hash a public key for addresses.
+     */
+    private const ADDRESS_SHA512_MULTIPLIER = 9;
 
     /**
      * @var null|string
@@ -96,12 +101,11 @@ class Wallet
     public function getAddress(): string
     {
         if (!$this->address) {
-            $hash = null;
-            for ($i = 0; $i < 9; $i++) {
-                $hash = hash('sha512', $this->publicKey, true);
+            for ($i = 0; $i < self::ADDRESS_SHA512_MULTIPLIER; $i++) {
+                $this->address = hash('sha512', $this->publicKey, true);
             }
 
-            $this->address = app(Base58::class)->encode($hash);
+            $this->address = app(Base58::class)->encode($this->address);
         }
 
         return $this->address;
