@@ -25,7 +25,10 @@ class WalletTest extends TestCase
      */
     public function itCanRetrieveAPrivateKeyFromANewWalletInstance(): void
     {
-        $this->assertInternalType('string', Wallet::generate()->getPrivateKey());
+        $data = Wallet::generate()->getPrivateKey();
+
+        $this->assertInternalType('string', $data);
+        $this->assertStringStartsWith('Lzhp9LopC', $data);
     }
 
     /**
@@ -34,6 +37,9 @@ class WalletTest extends TestCase
      */
     public function itCanRetrieveAPublicKeyFromANewWalletInstance(): void
     {
-        $this->assertInternalType('string', Wallet::generate()->getPublicKey());
+        $data = Wallet::generate()->getPublicKey();
+
+        $this->assertInternalType('string', $data);
+        $this->assertStringStartsWith('PZ8Tyr4Nx8', $data);
     }
 }
