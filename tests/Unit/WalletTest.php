@@ -16,7 +16,7 @@ class WalletTest extends TestCase
      */
     public function itCanGenerateANewWalletInstance(): void
     {
-        $this->assertInstanceOf(Wallet::class, Wallet::make());
+        $this->assertInstanceOf(Wallet::class, Wallet::generate());
     }
 
     /**
@@ -25,7 +25,7 @@ class WalletTest extends TestCase
      */
     public function itCanRetrieveAPrivateKeyFromANewWalletInstance(): void
     {
-        $this->assertInternalType('string', Wallet::make()->getPrivateKey());
+        $this->assertInternalType('string', Wallet::generate()->getPrivateKey());
     }
 
     /**
@@ -34,6 +34,6 @@ class WalletTest extends TestCase
      */
     public function itCanRetrieveAPublicKeyFromANewWalletInstance(): void
     {
-        $this->assertInternalType('string', Wallet::make()->getPublicKey());
+        $this->assertInternalType('string', Wallet::generate()->getPublicKey());
     }
 }

@@ -38,9 +38,18 @@ class Wallet
     }
 
     /**
+     * @param array $properties
      * @return self
      */
-    public static function make(): self
+    private static function make(array $properties)
+    {
+        return new static($properties);
+    }
+
+    /**
+     * @return self
+     */
+    public static function generate(): self
     {
         $properties = [];
 
@@ -55,7 +64,7 @@ class Wallet
         $pemKeyDetails = openssl_pkey_get_details($keySet);
         $properties['publicKey'] = Helpers\Key::pemToAroBase58($pemKeyDetails['key']);
 
-        return new static($properties);
+        return static::make($properties);
     }
 
     /**
