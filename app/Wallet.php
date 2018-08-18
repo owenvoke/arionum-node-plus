@@ -2,6 +2,8 @@
 
 namespace App;
 
+use StephenHill\Base58;
+
 /**
  * Class Wallet
  */
@@ -14,6 +16,11 @@ class Wallet
         'curve_name'       => 'secp256k1',
         'private_key_type' => OPENSSL_KEYTYPE_EC,
     ];
+
+    /**
+     * @var null|string
+     */
+    private $address;
 
     /**
      * @var string
@@ -81,5 +88,22 @@ class Wallet
     public function getPublicKey(): string
     {
         return $this->publicKey;
+    }
+
+    /**
+     * @return string
+     */
+    public function getAddress(): string
+    {
+        if (!$this->address) {
+            $hash = null;
+            for ($i = 0; $i < 9; $i++) {
+                $hash = hash('sha512', $this->publicKey, true);
+            }
+
+            $this->address = app(Base58::class)->encode($hash);
+        }
+
+        return $this->address;
     }
 }

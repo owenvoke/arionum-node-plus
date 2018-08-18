@@ -40,6 +40,15 @@ class WalletTest extends TestCase
         $data = Wallet::generate()->getPublicKey();
 
         $this->assertInternalType('string', $data);
-        $this->assertStringStartsWith('PZ8Tyr4Nx8', $data);
+        $this->assertStringStartsWith('PZ8Tyr4Nx8MHsRAGMpZmZ6TWY63dXWS', $data);
+    }
+
+    /**
+     * @test
+     * @return void
+     */
+    public function itCanRetrieveAnAddressFromANewWalletInstance(): void
+    {
+        $this->assertInternalType('string', Wallet::generate()->getAddress());
     }
 }
