@@ -34,4 +34,14 @@ final class Block extends Model
     protected $dates = [
         'date',
     ];
+
+    /**
+     * Retrieve the current block
+     *
+     * @return self
+     */
+    public static function current(): self
+    {
+        return static::limit(1)->orderByDesc('height')->first();
+    }
 }
