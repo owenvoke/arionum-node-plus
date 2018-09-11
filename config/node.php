@@ -22,6 +22,9 @@ return [
     // Enable testnet mode for development.
     'testnet'                          => env('NODE_TESTNET', false),
 
+    // Block accepting transfers from the official blacklist
+    'official_blacklist'               => true,
+
     /*
     |--------------------------------------------------------------------------
     | Peer Configuration
