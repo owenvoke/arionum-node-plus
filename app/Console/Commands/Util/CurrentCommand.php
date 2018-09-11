@@ -8,7 +8,7 @@ use Illuminate\Console\Command;
 /**
  * Class CurrentCommand
  */
-class CurrentCommand extends Command
+final class CurrentCommand extends Command
 {
     /**
      * The name and signature of the console command.

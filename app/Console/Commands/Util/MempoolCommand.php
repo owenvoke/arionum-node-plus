@@ -8,7 +8,7 @@ use Illuminate\Console\Command;
 /**
  * Class MempoolCommand
  */
-class MempoolCommand extends Command
+final class MempoolCommand extends Command
 {
     /**
      * The name and signature of the console command.
