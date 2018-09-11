@@ -22,7 +22,7 @@ class CurrentCommand extends Command
      *
      * @var string
      */
-    protected $description = 'Display details about the current block.';
+    protected $description = 'Display details about the current block';
 
     /**
      * Execute the console command.

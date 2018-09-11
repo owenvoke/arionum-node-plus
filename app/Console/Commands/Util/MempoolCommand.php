@@ -22,7 +22,7 @@ class MempoolCommand extends Command
      *
      * @var string
      */
-    protected $description = 'Display details about the mempool.';
+    protected $description = 'Display details about the mempool';
 
     /**
      * Execute the console command.
