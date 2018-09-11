@@ -11,4 +11,4 @@
 |
 */
 
-Route::get('/', 'NodeController@index');
+Route::get('/', 'NodeController@index')->name('index');
