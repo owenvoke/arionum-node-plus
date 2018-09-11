@@ -5,7 +5,7 @@ namespace App\Helpers;
 /**
  * Class Sanitisation
  */
-class Sanitisation
+final class Sanitisation
 {
     /**
      * @param string $input

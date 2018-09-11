@@ -7,7 +7,7 @@ use StephenHill\Base58;
 /**
  * Class EllipticCurve
  */
-class EllipticCurve
+final class EllipticCurve
 {
     /**
      * @param string $data

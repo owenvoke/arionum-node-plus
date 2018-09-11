@@ -7,7 +7,7 @@ use StephenHill\Base58;
 /**
  * Class Keys
  */
-class Key
+final class Key
 {
     public const EC_PUBLIC_START = '-----BEGIN PUBLIC KEY-----';
     public const EC_PUBLIC_END = '-----END PUBLIC KEY-----';
