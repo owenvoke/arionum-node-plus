@@ -43,7 +43,7 @@ class CurrentCommand extends Command
                 ['<comment>Signature:</comment>', $block->signature],
                 ['<comment>Difficulty:</comment>', $block->difficulty],
                 ['<comment>Argon:</comment>', $block->argon],
-                ['<comment>Transaction:</comment>', $block->transactions],
+                ['<comment>Transactions:</comment>', $block->transactions],
             ]
         );
     }
