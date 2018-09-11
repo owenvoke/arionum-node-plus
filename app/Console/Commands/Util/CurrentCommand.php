@@ -32,6 +32,12 @@ class CurrentCommand extends Command
     public function handle()
     {
         $block = Block::current();
+
+        if (!$block) {
+            $this->output->writeln('<comment>Failed to find current block</comment>');
+            return;
+        }
+
         $this->output->table(
             [],
             [
