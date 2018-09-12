@@ -20,6 +20,8 @@ use Illuminate\Support\Carbon;
  */
 final class Block extends Model
 {
+    use Traits\Blockchain\HasGenesisBlock;
+
     /**
      * @var bool
      */
