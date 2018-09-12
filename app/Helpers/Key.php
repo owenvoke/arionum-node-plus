@@ -42,6 +42,15 @@ final class Key
      * @param string $data
      * @return string
      */
+    public static function hexadecimalToAroBase58(string $data): string
+    {
+        return app(Base58::class)->encode(hex2bin($data));
+    }
+
+    /**
+     * @param string $data
+     * @return string
+     */
     public static function pemToAroBase58(string $data): string
     {
         return app(Base58::class)->encode(self::pemToBase64($data));
