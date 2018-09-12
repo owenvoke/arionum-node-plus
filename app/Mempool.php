@@ -48,4 +48,15 @@ final class Mempool extends Model
     protected $dates = [
         'date',
     ];
+
+    /**
+     * Clear the mempool of transactions older than 1000 blocks
+     * @return bool
+     */
+    public static function clean()
+    {
+        $limit = Block::current()->height - 1000;
+
+        return static::query()->where('height', '<', $limit)->delete();
+    }
 }
