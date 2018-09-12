@@ -2,6 +2,7 @@
 
 namespace App;
 
+use App\Helpers\Key;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 
@@ -43,4 +44,25 @@ final class Transaction extends Model
     protected $dates = [
         'date',
     ];
+
+    /**
+     * Retrieve a hash of the transactions most important fields and create the id
+     * @return string
+     */
+    public function hash()
+    {
+        $info = [
+            'val'        => $this->val,
+            'fee'        => $this->fee,
+            'dst'        => $this->dst,
+            'message'    => $this->message,
+            'version'    => $this->version,
+            'public_key' => $this->public_key,
+            'date'       => $this->date,
+            'signature'  => $this->signature,
+        ];
+
+        $hash = hash('sha512', implode('-', $info));
+        return Key::hexadecimalToAroBase58($hash);
+    }
 }
