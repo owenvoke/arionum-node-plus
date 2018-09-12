@@ -42,6 +42,6 @@ final class Block extends Model
      */
     public static function current(): self
     {
-        return static::limit(1)->orderByDesc('height')->first();
+        return static::query()->limit(1)->orderByDesc('height')->first();
     }
 }
