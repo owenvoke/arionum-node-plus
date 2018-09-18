@@ -27,7 +27,7 @@ final class MempoolCommand extends Command
     /**
      * Execute the console command.
      *
-     * @return mixed|void
+     * @return void
      */
     public function handle()
     {
