@@ -10,7 +10,7 @@ use App\Block;
 final class NodeController
 {
     /**
-     *
+     * @return \Illuminate\Contracts\View\Factory|\Illuminate\View\View
      */
     public function index()
     {

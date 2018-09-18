@@ -14,7 +14,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon $date
  * @property string $nonce
  * @property string $signature
- * @property string $difficulty
+ * @property int    $difficulty
  * @property string $argon
  * @property int    $transactions
  */
