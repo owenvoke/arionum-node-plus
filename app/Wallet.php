@@ -101,11 +101,12 @@ final class Wallet
     public function getAddress(): string
     {
         if (!$this->address) {
+            $tempHash = $this->publicKey;
             for ($i = 0; $i < self::ADDRESS_SHA512_MULTIPLIER; $i++) {
-                $this->address = hash('sha512', $this->publicKey, true);
+                $tempHash = hash('sha512', $tempHash, true);
             }
 
-            $this->address = app(Base58::class)->encode($this->address);
+            $this->address = app(Base58::class)->encode($tempHash);
         }
 
         return $this->address;
