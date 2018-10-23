@@ -5,7 +5,7 @@ namespace App;
 use App\Helpers\EllipticCurve;
 use App\Helpers\Sanitisation;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Query\Builder;
+use \Illuminate\Database\Eloquent\Builder;
 use StephenHill\Base58;
 
 /**
