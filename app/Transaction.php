@@ -95,7 +95,7 @@ final class Transaction extends Model
                     [":alias" => $x['dst'], ":val" => $x['val']]
                 );
                 if ($rez != 1) {
-                    Log::info("Update alias balance minus failed", 3);
+                    Log::info('Update alias balance minus failed');
                     return false;
                 }
             } else {
@@ -107,7 +107,7 @@ final class Transaction extends Model
                         [":id" => $x['dst'], ":val" => $x['val']]
                     );
                     if ($rez != 1) {
-                        Log::info("Update accounts balance minus failed", 3);
+                        Log::info('Update accounts balance minus failed');
                         return false;
                     }
                 }
@@ -143,7 +143,7 @@ final class Transaction extends Model
                         [':public_key' => $x['public_key']]
                     );
                     if ($rez != 1) {
-                        Log::info("Delete from masternode failed", 3);
+                        Log::info('Delete from masternode failed');
                         return false;
                     }
                 } elseif ($x['version'] == 101) {
@@ -257,22 +257,22 @@ final class Transaction extends Model
                 }
 
                 if (empty($x['public_key'])) {
-                    Log::info("$x[id] - Transaction has empty public_key");
+                    Log::info($x['id'].' - Transaction has empty public_key');
                     continue;
                 }
                 if (empty($x['src'])) {
-                    Log::info("$x[id] - Transaction has empty src");
+                    Log::info($x['id'].' - Transaction has empty src');
                     continue;
                 }
                 if (!$this->check($trans, $current['height'])) {
-                    Log::info("$x[id] - Transaction Check Failed");
+                    Log::info($x['id'].' - Transaction Check Failed');
                     continue;
                 }
 
                 $balance[$x['src']] += $x['val'] + $x['fee'];
                 if ($db->single("SELECT COUNT(1) FROM transactions WHERE id=:id", [":id" => $x['id']]) > 0) {
-                    Log::info("$x[id] - Duplicate transaction");
-                    continue; //duplicate transaction
+                    Log::info($x['id'].' - Duplicate transaction');
+                    continue;
                 }
 
                 $res = $db->single(
@@ -281,7 +281,7 @@ final class Transaction extends Model
                 );
 
                 if ($res == 0) {
-                    Log::info("$x[id] - Not enough funds in balance");
+                    Log::info($x['id'].' - Not enough funds in balance');
                     continue; // not enough balance for the transactions
                 }
                 $i++;
@@ -295,7 +295,7 @@ final class Transaction extends Model
         return $transactions;
     }
 
-    // add a new transaction to the blockchain
+    // Add a new transaction to the blockchain
     public function add($block, $height, $x)
     {
         global $db;
@@ -423,19 +423,19 @@ final class Transaction extends Model
 
         // the value must be >=0
         if ($x['val'] < 0) {
-            Log::info("$x[id] - Value below 0", 3);
+            Log::info($x['id'].' - Value below 0');
             return false;
         }
 
         // the fee must be >=0
         if ($x['fee'] < 0) {
-            Log::info("$x[id] - Fee below 0", 3);
+            Log::info($x['id'].' - Fee below 0');
             return false;
         }
 
         // the fee is 0.25%, hardcoded
         $fee = $x['val'] * 0.0025;
-        $fee = number_format($fee, 8, ".", "");
+        $fee = number_format($fee, 8, '.', '');
         if ($fee < 0.00000001) {
             $fee = 0.00000001;
         }
@@ -443,12 +443,12 @@ final class Transaction extends Model
         if ($x['version'] == 3 && $height >= 80000) {
             $fee = 10;
             if (!$acc->freeAlias($x['message'])) {
-                Log::info("Alias not free", 3);
+                Log::info('Alias not free');
                 return false;
             }
             // alias can only be set once per account
             if ($acc->hasAlias($x['public_key'])) {
-                Log::info("The account already has an alias", 3);
+                Log::info('The account already has an alias');
                 return false;
             }
         }
@@ -460,7 +460,7 @@ final class Transaction extends Model
                 $message = $x['message'];
                 $message = preg_replace("/[^0-9\.]/", "", $message);
                 if (!filter_var($message, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
-                    Log::info("The Masternode IP is invalid", 3);
+                    Log::info('The Masternode IP is invalid');
                     return false;
                 }
                 global $db;
@@ -525,7 +525,7 @@ final class Transaction extends Model
             }
         } elseif ($x['version'] == 2 && $height >= 80000) {
             if (!$acc->validAlias($x['dst'])) {
-                Log::info("$x[id] - Invalid destination alias", 3);
+                Log::info($x['id'].' - Invalid destination alias');
                 return false;
             }
         }
@@ -533,29 +533,28 @@ final class Transaction extends Model
 
         // reward transactions are not added via this function
         if ($x['version'] < 1) {
-            Log::info("$x[id] - Invalid version <1", 3);
+            Log::info($x['id'].' - Invalid version <1');
             return false;
         }
-        //if($x['version']>1) { Log::info("$x[id] - Invalid version >1"); return false; }
 
         // public key must be at least 15 chars / probably should be replaced with the validator function
         if (strlen($x['public_key']) < 15) {
-            Log::info("$x[id] - Invalid public key size", 3);
+            Log::info($x['id'].' - Invalid public key size');
             return false;
         }
         // no transactions before the genesis
         if ($x['date'] < 1511725068) {
-            Log::info("$x[id] - Date before genesis", 3);
+            Log::info($x['id'].'Date before genesis');
             return false;
         }
         // no future transactions
         if ($x['date'] > time() + 86400) {
-            Log::info("$x[id] - Date in the future", 3);
+            Log::info($x['id'].'Date in the future');
             return false;
         }
         // prevent the resending of broken base58 transactions
         if ($height > 16900 && $x['date'] < 1519327780) {
-            Log::info("$x[id] - Broken base58 transaction", 3);
+            Log::info($x['id'].'Broken base58 transaction');
             return false;
         }
         $id = $this->hash($x);
@@ -567,14 +566,14 @@ final class Transaction extends Model
                 $id,
                 2
             ) != $x['id'])) || $height > 16900) {
-                Log::info("$x[id] - $id - Invalid hash");
+                Log::info($x['id'].'$id - Invalid hash');
                 return false;
             }
         }
 
         //verify the ecdsa signature
         if (!$acc->checkSignature($info, $x['signature'], $x['public_key'])) {
-            Log::info("$x[id] - Invalid signature - $info");
+            Log::info($x['id'].'Invalid signature - '.$info);
             return false;
         }
 
