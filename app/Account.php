@@ -186,20 +186,17 @@ final class Account extends Model
         return self::query()->where('alias', strtoupper($alias))->first();
     }
 
-    public function validAddress($id)
+    public function validAddress(): bool
     {
         $addressLength = strlen($this->id);
         if ($addressLength < self::MIN_ADDRESS_LENGTH || $addressLength > self::MAX_ADDRESS_LENGTH) {
             return false;
         }
-        $chars = str_split('123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz');
-        for ($i = 0; $i < strlen($id); $i++) {
-            if (!in_array($id[$i], $chars)) {
-                return false;
-            }
-        }
 
-        return true;
+        return preg_match(
+            '/[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+/',
+            $this->id
+        );
     }
 
     public function getPendingBalanceAttribute(): float
