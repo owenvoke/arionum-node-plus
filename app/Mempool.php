@@ -2,6 +2,7 @@
 
 namespace App;
 
+use App\Helpers\Blacklist;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 
@@ -83,5 +84,57 @@ final class Mempool extends Model
     public function getTypeAttribute(): string
     {
         return 'mempool';
+    }
+
+    // add a new transaction to mempool and lock it with the current height
+    public function addMempool($x, $peer = "")
+    {
+        global $db;
+        global $_config;
+        $block = new Block();
+        if ($x['version'] > 110) {
+            return true;
+        }
+
+        if ($_config['use_official_blacklist'] !== false) {
+            if (Blacklist::checkPublicKey($x['public_key']) || Blacklist::checkAddress($x['src'])) {
+                return true;
+            }
+        }
+        $current = $block->current();
+        $height = $current['height'];
+        $x['id'] = san($x['id']);
+        $bind = [
+            ":peer"      => $peer,
+            ":id"        => $x['id'],
+            "public_key" => $x['public_key'],
+            ":height"    => $height,
+            ":src"       => $x['src'],
+            ":dst"       => $x['dst'],
+            ":val"       => $x['val'],
+            ":fee"       => $x['fee'],
+            ":signature" => $x['signature'],
+            ":version"   => $x['version'],
+            ":date"      => $x['date'],
+            ":message"   => $x['message'],
+        ];
+
+        //only a single masternode command of same type, per block
+        if ($x['version'] >= 100 && $x['version'] < 110) {
+            $check = $db->single(
+                "SELECT COUNT(1) FROM mempool WHERE public_key=:public_key",
+                [":public_key" => $x['public_key']]
+            );
+            if ($check != 0) {
+                _log("Masternode transaction already in mempool", 3);
+                return false;
+            }
+        }
+
+        $db->run(
+            "INSERT into mempool  SET peer=:peer, id=:id, public_key=:public_key, height=:height, src=:src, dst=:dst, val=:val, fee=:fee, signature=:signature, version=:version, message=:message, `date`=:date",
+            $bind
+        );
+        return true;
     }
 }

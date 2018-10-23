@@ -138,8 +138,10 @@ final class Transaction extends Model
 
             if ($x['version'] >= 100 && $x['version'] < 110 && $x['height'] >= 80000) {
                 if ($x['version'] == 100) {
-                    $rez = $db->run("DELETE FROM masternode WHERE public_key=:public_key",
-                        [':public_key' => $x['public_key']]);
+                    $rez = $db->run(
+                        "DELETE FROM masternode WHERE public_key=:public_key",
+                        [':public_key' => $x['public_key']]
+                    );
                     if ($rez != 1) {
                         _log("Delete from masternode failed", 3);
                         return false;
@@ -150,11 +152,15 @@ final class Transaction extends Model
                         [':public_key' => $x['public_key']]
                     );
                 } elseif ($x['version'] == 102) {
-                    $rez = $db->run("UPDATE masternode SET status=0 WHERE public_key=:public_key",
-                        [':public_key' => $x['public_key']]);
+                    $rez = $db->run(
+                        "UPDATE masternode SET status=0 WHERE public_key=:public_key",
+                        [':public_key' => $x['public_key']]
+                    );
                 } elseif ($x['version'] == 103) {
-                    $mnt = $db->row("SELECT height, `message` FROM transactions WHERE version=100 AND public_key=:public_key ORDER by height DESC LIMIT 1",
-                        [":public_key" => $x['public_key']]);
+                    $mnt = $db->row(
+                        "SELECT height, `message` FROM transactions WHERE version=100 AND public_key=:public_key ORDER by height DESC LIMIT 1",
+                        [":public_key" => $x['public_key']]
+                    );
                     $vers = $db->single(
                         "SELECT `version` FROM transactions WHERE (version=101 or version=102) AND public_key=:public_key AND height>:height ORDER by height DESC LIMIT 1",
                         [":public_key" => $x['public_key'], ":height" => $mnt['height']]
@@ -179,8 +185,10 @@ final class Transaction extends Model
                         Log::info('Insert into masternode failed');
                         return false;
                     }
-                    $rez = $db->run("UPDATE accounts SET balance=balance-100000 WHERE public_key=:public_key",
-                        [':public_key' => $x['public_key']]);
+                    $rez = $db->run(
+                        "UPDATE accounts SET balance=balance-100000 WHERE public_key=:public_key",
+                        [':public_key' => $x['public_key']]
+                    );
                     if ($rez != 1) {
                         Log::info('Update masternode balance failed');
                         return false;
@@ -205,7 +213,7 @@ final class Transaction extends Model
 
             // add the transactions to mempool
             if ($x['version'] > 0 && $x['version'] <= 110) {
-                $this->add_mempool($x);
+                $this->addMempool($x);
             }
             $res = $db->run("DELETE FROM transactions WHERE id=:id", [":id" => $x['id']]);
             if ($res != 1) {
@@ -287,56 +295,6 @@ final class Transaction extends Model
         return $transactions;
     }
 
-    // add a new transaction to mempool and lock it with the current height
-    public function add_mempool($x, $peer = "")
-    {
-        global $db;
-        global $_config;
-        $block = new Block();
-        if ($x['version'] > 110) {
-            return true;
-        }
-
-        if ($_config['use_official_blacklist'] !== false) {
-            if (Blacklist::checkPublicKey($x['public_key']) || Blacklist::checkAddress($x['src'])) {
-                return true;
-            }
-        }
-        $current = $block->current();
-        $height = $current['height'];
-        $x['id'] = san($x['id']);
-        $bind = [
-            ":peer"      => $peer,
-            ":id"        => $x['id'],
-            "public_key" => $x['public_key'],
-            ":height"    => $height,
-            ":src"       => $x['src'],
-            ":dst"       => $x['dst'],
-            ":val"       => $x['val'],
-            ":fee"       => $x['fee'],
-            ":signature" => $x['signature'],
-            ":version"   => $x['version'],
-            ":date"      => $x['date'],
-            ":message"   => $x['message'],
-        ];
-
-        //only a single masternode command of same type, per block
-        if ($x['version'] >= 100 && $x['version'] < 110) {
-            $check = $db->single("SELECT COUNT(1) FROM mempool WHERE public_key=:public_key",
-                [":public_key" => $x['public_key']]);
-            if ($check != 0) {
-                _log("Masternode transaction already in mempool", 3);
-                return false;
-            }
-        }
-
-        $db->run(
-            "INSERT into mempool  SET peer=:peer, id=:id, public_key=:public_key, height=:height, src=:src, dst=:dst, val=:val, fee=:fee, signature=:signature, version=:version, message=:message, `date`=:date",
-            $bind
-        );
-        return true;
-    }
-
     // add a new transaction to the blockchain
     public function add($block, $height, $x)
     {
@@ -368,18 +326,22 @@ final class Transaction extends Model
             return false;
         }
         if ($x['version'] == 2 && $height >= 80000) {
-            $db->run("UPDATE accounts SET balance=balance+:val WHERE alias=:alias",
-                [":alias" => $x['dst'], ":val" => $x['val']]);
+            $db->run(
+                "UPDATE accounts SET balance=balance+:val WHERE alias=:alias",
+                [":alias" => $x['dst'], ":val" => $x['val']]
+            );
         } elseif ($x['version'] == 100 && $height >= 80000) {
             //master node deposit
         } elseif ($x['version'] == 103 && $height >= 80000) {
             $blk = new Block();
-            $blk->masternode_log($x['public_key'], $height, $block);
+            $blk->masternodeLog($x['public_key'], $height, $block);
 
             //master node withdrawal
         } else {
-            $db->run("UPDATE accounts SET balance=balance+:val WHERE id=:id",
-                [":id" => $x['dst'], ":val" => $x['val']]);
+            $db->run(
+                "UPDATE accounts SET balance=balance+:val WHERE id=:id",
+                [":id" => $x['dst'], ":val" => $x['val']]
+            );
         }
 
 
@@ -405,20 +367,30 @@ final class Transaction extends Model
             $message = $x['message'];
             $message = preg_replace("/[^0-9\.]/", "", $message);
             if ($x['version'] == 100) {
-                $db->run("INSERT into masternode SET `public_key`=:public_key, `height`=:height, `ip`=:ip, `status`=1",
-                    [":public_key" => $x['public_key'], ":height" => $height, ":ip" => $message]);
+                $db->run(
+                    "INSERT into masternode SET `public_key`=:public_key, `height`=:height, `ip`=:ip, `status`=1",
+                    [":public_key" => $x['public_key'], ":height" => $height, ":ip" => $message]
+                );
             } else {
                 if ($x['version'] == 101) {
-                    $db->run("UPDATE masternode SET status=0 WHERE public_key=:public_key",
-                        [':public_key' => $x['public_key']]);
+                    $db->run(
+                        "UPDATE masternode SET status=0 WHERE public_key=:public_key",
+                        [':public_key' => $x['public_key']]
+                    );
                 } elseif ($x['version'] == 102) {
-                    $db->run("UPDATE masternode SET status=1 WHERE public_key=:public_key",
-                        [':public_key' => $x['public_key']]);
+                    $db->run(
+                        "UPDATE masternode SET status=1 WHERE public_key=:public_key",
+                        [':public_key' => $x['public_key']]
+                    );
                 } elseif ($x['version'] == 103) {
-                    $db->run("DELETE FROM masternode WHERE public_key=:public_key",
-                        [':public_key' => $x['public_key']]);
-                    $db->run("UPDATE accounts SET balance=balance+100000 WHERE public_key=:public_key",
-                        [':public_key' => $x['public_key']]);
+                    $db->run(
+                        "DELETE FROM masternode WHERE public_key=:public_key",
+                        [':public_key' => $x['public_key']]
+                    );
+                    $db->run(
+                        "UPDATE accounts SET balance=balance+100000 WHERE public_key=:public_key",
+                        [':public_key' => $x['public_key']]
+                    );
                 }
             }
         }
@@ -492,8 +464,10 @@ final class Transaction extends Model
                     return false;
                 }
                 global $db;
-                $existing = $db->single("SELECT COUNT(1) FROM masternode WHERE public_key=:id or ip=:ip",
-                    ["id" => $x['public_key'], ":ip" => $message]);
+                $existing = $db->single(
+                    "SELECT COUNT(1) FROM masternode WHERE public_key=:id or ip=:ip",
+                    ["id" => $x['public_key'], ":ip" => $message]
+                );
                 if ($existing != 0) {
                     return false;
                 }
@@ -590,9 +564,9 @@ final class Transaction extends Model
             // fix for broken base58 library which was used until block 16900, accepts hashes without the first 1 or 2 bytes
             $xs = base58_decode($x['id']);
             if (((strlen($xs) != 63 || substr($id, 1) != $x['id']) && (strlen($xs) != 62 || substr(
-                            $id,
-                            2
-                        ) != $x['id'])) || $height > 16900) {
+                $id,
+                2
+            ) != $x['id'])) || $height > 16900) {
                 _log("$x[id] - $id - Invalid hash");
                 return false;
             }
@@ -615,105 +589,6 @@ final class Transaction extends Model
         $signature = ec_sign($info, $private_key);
 
         return $signature;
-    }
-
-    // get the transaction data as array
-    public function get_transaction($id)
-    {
-        global $db;
-        $acc = new Account();
-        $block = new Block();
-        $current = $block->current();
-
-        $x = $db->row("SELECT * FROM transactions WHERE id=:id", [":id" => $id]);
-
-        if (!$x) {
-            return false;
-        }
-        $trans = [
-            "block"      => $x['block'],
-            "height"     => $x['height'],
-            "id"         => $x['id'],
-            "dst"        => $x['dst'],
-            "val"        => $x['val'],
-            "fee"        => $x['fee'],
-            "signature"  => $x['signature'],
-            "message"    => $x['message'],
-            "version"    => $x['version'],
-            "date"       => $x['date'],
-            "public_key" => $x['public_key'],
-        ];
-        $trans['src'] = $acc->getAddress($x['public_key']);
-        $trans['confirmations'] = $current['height'] - $x['height'];
-
-        if ($x['version'] == 0) {
-            $trans['type'] = "mining";
-        } elseif ($x['version'] == 1 || $x['version'] == 2) {
-            if ($x['dst'] == $id) {
-                $trans['type'] = "credit";
-            } else {
-                $trans['type'] = "debit";
-            }
-        } else {
-            $trans['type'] = "other";
-        }
-        ksort($trans);
-        return $trans;
-    }
-
-    // return the transactions for a specific block id or height
-    public function get_transactions($height = "", $id = "")
-    {
-        global $db;
-        $block = new Block();
-        $current = $block->current();
-        $acc = new Account();
-        $height = san($height);
-        $id = san($id);
-        if (empty($id) && empty($height)) {
-            return false;
-        }
-        if (!empty($id)) {
-            $r = $db->run("SELECT * FROM transactions WHERE block=:id AND version>0", [":id" => $id]);
-        } else {
-            $r = $db->run("SELECT * FROM transactions WHERE height=:height AND version>0", [":height" => $height]);
-        }
-        $res = [];
-        foreach ($r as $x) {
-            if ($x['version'] > 110) {
-                continue; //internal transactions
-            }
-            $trans = [
-                "block"      => $x['block'],
-                "height"     => $x['height'],
-                "id"         => $x['id'],
-                "dst"        => $x['dst'],
-                "val"        => $x['val'],
-                "fee"        => $x['fee'],
-                "signature"  => $x['signature'],
-                "message"    => $x['message'],
-                "version"    => $x['version'],
-                "date"       => $x['date'],
-                "public_key" => $x['public_key'],
-            ];
-            $trans['src'] = $acc->getAddress($x['public_key']);
-            $trans['confirmations'] = $current['height'] - $x['height'];
-
-            if ($x['version'] == 0) {
-                $trans['type'] = "mining";
-            } elseif ($x['version'] == 1 || $x['version'] == 2) {
-                if ($x['dst'] == $id) {
-                    $trans['type'] = "credit";
-                } else {
-                    $trans['type'] = "debit";
-                }
-            } else {
-                $trans['type'] = "other";
-            }
-            ksort($trans);
-            $res[] = $trans;
-        }
-        return $res;
     }
 
     public function getConfirmationsAttribute(): int

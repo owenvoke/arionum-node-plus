@@ -180,20 +180,22 @@ final class Block extends Model
         $res = $trx->add($hash, $height, $transaction);
         if ($res == false) {
             // rollback and exit if it fails
-            _log("Reward DB insert failed");
+            Log::info("Reward DB insert failed");
             $db->rollback();
             $db->exec("UNLOCK TABLES");
             return false;
         }
-        if ($mn_winner !== false && $height >= 80458 && $masternodeReward > 0) {
-            $db->run("UPDATE accounts SET balance=balance+:bal WHERE public_key=:pub",
-                [":pub" => $mn_winner, ":bal" => $masternodeReward]);
+        if ($masternodeWinner !== false && $height >= 80458 && $masternodeReward > 0) {
+            $db->run(
+                "UPDATE accounts SET balance=balance+:bal WHERE public_key=:pub",
+                [":pub" => $masternodeWinner, ":bal" => $masternodeReward]
+            );
             $bind = [
-                ":id"         => hex2coin(hash("sha512", "mn".$hash.$height.$mn_winner)),
+                ":id"         => Key::hexadecimalToAroBase58(hash("sha512", "mn".$hash.$height.$masternodeWinner)),
                 ":public_key" => $publicKey,
                 ":height"     => $height,
                 ":block"      => $hash,
-                ":dst"        => $acc->getAddress($mn_winner),
+                ":dst"        => $acc->getAddress($masternodeWinner),
                 ":val"        => $masternodeReward,
                 ":fee"        => 0,
                 ":signature"  => $rewardSignature,
@@ -206,17 +208,17 @@ final class Block extends Model
                 $bind
             );
             if ($res != 1) {
-                // rollback and exit if it fails
-                _log("Masternode reward DB insert failed");
+                // Rollback and exit if it fails
+                Log::info("Masternode reward DB insert failed");
+
                 $db->rollback();
                 $db->exec("UNLOCK TABLES");
                 return false;
             }
-            $res = $this->reset_fails_masternodes($mn_winner, $height, $hash);
+            $res = $this->resetFailedMasternodes($masternodeWinner, $height, $hash);
             if (!$res) {
-
-                // rollback and exit if it fails
-                _log("Masternode log DB insert failed");
+                // Rollback and exit if it fails
+                Log::info("Masternode log DB insert failed");
                 $db->rollback();
                 $db->exec("UNLOCK TABLES");
                 return false;
@@ -227,8 +229,8 @@ final class Block extends Model
         $res = $this->parseBlock($hash, $height, $data, false, $bootstrapping);
 
         if (($height - 1) % 3 == 2 && $height >= 80000 && $height < 80458) {
-            $this->blacklist_masternodes();
-            $this->reset_fails_masternodes($publicKey, $height, $hash);
+            $this->blacklistMasternodes();
+            $this->resetFailedMasternodes($publicKey, $height, $hash);
         }
         // if any fails, rollback
         if ($res == false) {
@@ -241,19 +243,18 @@ final class Block extends Model
         return true;
     }
 
-    // resets the number of fails when winning a block and marks it with a transaction
-
-    public function reset_fails_masternodes($public_key, $height, $hash)
+    public function resetFailedMasternodes($publicKey, $height, $hash)
     {
-        global $db;
-        $res = $this->masternode_log($public_key, $height, $hash);
-        if ($res === 5) {
+        $result = $this->masternodeLog($publicKey, $height, $hash);
+        if ($result === 5) {
             return false;
         }
 
-        if ($res) {
-            $rez = $db->run("UPDATE masternode SET last_won=:last_won,fails=0 WHERE public_key=:public_key",
-                [":public_key" => $public_key, ":last_won" => $height]);
+        if ($result) {
+            $rez = $db->run(
+                "UPDATE masternode SET last_won=:last_won,fails=0 WHERE public_key=:public_key",
+                [":public_key" => $publicKey, ":last_won" => $height]
+            );
             if ($rez != 1) {
                 return false;
             }
@@ -261,110 +262,91 @@ final class Block extends Model
         return true;
     }
 
-    //logs the current masternode status
-    public function masternode_log($public_key, $height, $hash)
+    public function masternodeLog($publicKey, $height, $blockHash)
     {
-        global $db;
+        $masternode = Masternode::query()
+            ->where('public_key', $publicKey)
+            ->first(['blacklist', 'last_won', 'fails']);
 
-        $mn = $db->row("SELECT blacklist,last_won,fails FROM masternode WHERE public_key=:public_key",
-            [":public_key" => $public_key]);
-
-        if (!$mn) {
+        if ($masternode->doesntExist()) {
             return false;
         }
 
-        $id = hex2coin(hash("sha512", "resetfails-$hash-$height-$public_key"));
-        $msg = "$mn[blacklist],$mn[last_won],$mn[fails]";
+        $id = Key::hexadecimalToAroBase58(hash('sha512', "resetfails-$blockHash-$height-$publicKey"));
+        $message = $masternode['blacklist'].','.$masternode['last_won'].','.$masternode['fails'];
 
-        $res = $db->run(
-
-            "INSERT into transactions SET id=:id, block=:block, height=:height, dst=:dst, val=0, fee=0, signature=:sig, version=111, message=:msg, date=:date, public_key=:public_key",
-            [
-                ":id"         => $id,
-                ":block"      => $hash,
-                ":height"     => $height,
-                ":dst"        => $hash,
-                ":sig"        => $hash,
-                ":msg"        => $msg,
-                ":date"       => time(),
-                ":public_key" => $public_key,
-            ]
-
-        );
-        if ($res != 1) {
-            return 5;
-        }
-        return true;
+        return Transaction::query()->create([
+            'id'         => $id,
+            'block'      => $blockHash,
+            'height'     => $height,
+            'dst'        => $blockHash,
+            'val'        => 0,
+            'fee'        => 0,
+            'sig'        => $blockHash,
+            'version'    => 111,
+            'message'    => $message,
+            'date'       => Carbon::now(),
+            'public_key' => $publicKey,
+        ]) ? true : 5;
     }
 
-    // returns the previous block
-    public function prev()
+    public function previous()
     {
-        global $db;
-        $current = $db->row("SELECT * FROM blocks ORDER by height DESC LIMIT 1,1");
-
-        return $current;
+        return self::query()->orderByDesc('height')->offset(1)->limit(1)->first();
     }
 
-    // calculates the difficulty / base target for a specific block. The higher the difficulty number, the easier it is to win a block.
-    public function difficulty($height = 0)
+    // Calculates the difficulty / base target for a specific block.
+    // The higher the difficulty number, the easier it is to win a block.
+    public function difficulty()
     {
-        global $db;
-
-        // if no block height is specified, use the current block.
-        if ($height == 0) {
-            $current = $this->current();
-        } else {
-            $current = $this->get($height);
+        if ($this->height == 10801 || ($this->height >= 80456 && $this->height < 80460)) {
+            return '5555555555'; // Hard fork 10900 resistance, force new difficulty
         }
 
-
-        $height = $current['height'];
-
-        if ($height == 10801 || ($height >= 80456 && $height < 80460)) {
-            return "5555555555"; //hard fork 10900 resistance, force new difficulty
-        }
-
-        // last 20 blocks used to check the block times
+        // Last 20 blocks used to check the block times
         $limit = 20;
-        if ($height < 20) {
-            $limit = $height - 1;
+        if ($this->height < 20) {
+            $limit = $this->height - 1;
         }
 
-        // for the first 10 blocks, use the genesis difficulty
-        if ($height < 10) {
-            return $current['difficulty'];
+        // For the first 10 blocks, use the genesis difficulty
+        if ($this->height < 10) {
+            return $this->difficulty;
         }
 
-        // before mnn hf
-        if ($height < 80000) {
-            // elapsed time between the last 20 blocks
-            $first = $db->row("SELECT `date` FROM blocks  ORDER by height DESC LIMIT :limit,1", [":limit" => $limit]);
-            $time = $current['date'] - $first['date'];
+        // Before masternodes hf
+        if ($this->height < 80000) {
+            // Elapsed time between the last 20 blocks
+            $first = self::query()->orderByDesc('height')->offset($limit)->limit(1)->value('date');
+            $time = $this->date - $first;
 
-            // avg block time
+            // Average block time
             $result = ceil($time / $limit);
-            _log("Block time: $result", 3);
+            Log::info('Block time: '.$result);
 
 
-            // if larger than 200 sec, increase by 5%
+            // If larger than 200 sec, increase by 5%
             if ($result > 220) {
-                $dif = bcmul($current['difficulty'], 1.05);
+                $dif = bcmul($this->difficulty, 1.05);
             } elseif ($result < 260) {
-                // if lower, decrease by 5%
-                $dif = bcmul($current['difficulty'], 0.95);
+                // If lower, decrease by 5%
+                $dif = bcmul($this->difficulty, 0.95);
             } else {
-                // keep current difficulty
-                $dif = $current['difficulty'];
+                // Keep current difficulty
+                $dif = $this->difficulty;
             }
-        } elseif ($height >= 80458) {
-            $type = $height % 2;
-            $current = $db->row("SELECT difficulty from blocks WHERE height<=:h ORDER by height DESC LIMIT 1,1",
-                [":h" => $height]);
+        } elseif ($this->height >= 80458) {
+            $type = $this->height % 2;
+            $current = $db->row(
+                "SELECT difficulty from blocks WHERE height<=:h ORDER by height DESC LIMIT 1,1",
+                [":h" => $this->height]
+            );
             $blks = 0;
-            $total_time = 0;
-            $blk = $db->run("SELECT `date`, height FROM blocks WHERE height<=:h  ORDER by height DESC LIMIT 20",
-                [":h" => $height]);
+            $totalTime = 0;
+            $blk = $db->run(
+                "SELECT `date`, height FROM blocks WHERE height<=:h  ORDER by height DESC LIMIT 20",
+                [":h" => $this->height]
+            );
             for ($i = 0; $i < 19; $i++) {
                 $ctype = $blk[$i + 1]['height'] % 2;
                 $time = $blk[$i]['date'] - $blk[$i + 1]['date'];
@@ -372,10 +354,10 @@ final class Block extends Model
                     continue;
                 }
                 $blks++;
-                $total_time += $time;
+                $totalTime += $time;
             }
-            $result = ceil($total_time / $blks);
-            _log("Block time: $result", 3);
+            $result = ceil($totalTime / $blks);
+            Log::info('Block time: '.$result);
             if ($result > 260) {
                 $dif = bcmul($current['difficulty'], 1.05);
             } elseif ($result < 220) {
@@ -386,68 +368,71 @@ final class Block extends Model
                 $dif = $current['difficulty'];
             }
         } else {
-            // hardfork 80000, fix difficulty targetting
+            // Hard fork 80000, fix difficulty targeting
 
+            $type = $this->height % 3;
 
-            $type = $height % 3;
-            // for mn, we use gpu diff
-            if ($type == 2) {
-                return $current['difficulty'];
+            // For masternodes, we use gpu diff
+            if ($type === 2) {
+                return $this->difficulty;
             }
 
             $blks = 0;
-            $total_time = 0;
-            $blk = $db->run("SELECT `date`, height FROM blocks  ORDER by height DESC LIMIT 60");
+            $totalTime = 0;
+            $blk = self::query()->orderByDesc('height')->limit(60)->get(['date', 'height']);
+
             for ($i = 0; $i < 59; $i++) {
                 $ctype = $blk[$i + 1]['height'] % 3;
                 $time = $blk[$i]['date'] - $blk[$i + 1]['date'];
-                if ($type != $ctype) {
+                if ($type !== $ctype) {
                     continue;
                 }
                 $blks++;
-                $total_time += $time;
+                $totalTime += $time;
             }
-            $result = ceil($total_time / $blks);
-            _log("Block time: $result", 3);
+
+            $result = ceil($totalTime / $blks);
+            Log::info('Block time: '.$result);
 
             // if larger than 260 sec, increase by 5%
             if ($result > 260) {
-                $dif = bcmul($current['difficulty'], 1.05);
+                $dif = bcmul($this->difficulty, 1.05);
             } elseif ($result < 220) {
                 // if lower, decrease by 5%
-                $dif = bcmul($current['difficulty'], 0.95);
+                $dif = bcmul($this->difficulty, 0.95);
             } else {
                 // keep current difficulty
-                $dif = $current['difficulty'];
+                $dif = $this->difficulty;
             }
         }
-
 
         if (strpos($dif, '.') !== false) {
             $dif = substr($dif, 0, strpos($dif, '.'));
         }
 
-        //minimum and maximum diff
+        // Minimum difficulty
         if ($dif < 1000) {
             $dif = 1000;
         }
+
+        // Maximum difficulty
         if ($dif > 9223372036854775800) {
             $dif = 9223372036854775800;
         }
-        _log("Difficulty: $dif", 3);
+
+        Log::info('Difficulty: '.$dif);
+
         return $dif;
     }
 
-    // calculates the maximum block size and increase by 10% the number of transactions if > 100 on the last 100 blocks
     public function maxTransactions()
     {
         $limit = $this->current()->height - 100;
-
         $average = self::query()->where('height', '>', $limit)->average('transactions');
+
         return ($average < 100) ? 100 : ceil($average * 1.1);
     }
 
-    // Calculate the reward for each block
     public function reward($data = [])
     {
         // Starting reward
@@ -471,7 +456,6 @@ final class Block extends Model
         return number_format($reward + $fees, 8, '.', '');
     }
 
-    // checks the validity of a block
     public function check()
     {
         // argon must have at least 20 chars
@@ -482,26 +466,35 @@ final class Block extends Model
         $acc = new Account();
 
         if ($this->date > time() + 30) {
-            _log('Future block - '.$this->date.' '.$this->generator, 2);
+            Log::info('Future block - '.$this->date.' '.$this->generator, 2);
             return false;
         }
 
         // generator's public key must be valid
         if (!$acc->validKey($data['public_key'])) {
-            _log("Invalid public key - $data[public_key]");
+            Log::info("Invalid public key - $data[public_key]");
             return false;
         }
 
         //difficulty should be the same as our calculation
         if ($data['difficulty'] != $this->difficulty()) {
-            _log("Invalid difficulty - $data[difficulty] - ".$this->difficulty());
+            Log::info("Invalid difficulty - $data[difficulty] - ".$this->difficulty());
             return false;
         }
 
         //check the argon hash and the nonce to produce a valid block
-        if (!$this->mine($data['public_key'], $data['nonce'], $data['argon'], $data['difficulty'], 0, 0,
-            $data['date'])) {
-            _log("Mine check failed");
+        if (!$this->mine(
+            $data['public_key'],
+            $data['nonce'],
+            $data['argon'],
+            $data['difficulty'],
+            0,
+            0,
+            $data['date']
+        )
+        ) {
+            Log::info('Mine check failed');
+
             return false;
         }
 
@@ -545,19 +538,24 @@ final class Block extends Model
         $reward = $this->reward($height, $data);
 
         if ($height >= 80458) {
-            //reward the masternode
-            global $db;
-            $mn_winner = $db->single(
-                "SELECT public_key FROM masternode WHERE status=1 AND blacklist<:current AND height<:start ORDER by last_won ASC, public_key ASC LIMIT 1",
-                [":current" => $height, ":start" => $height - 360]
-            );
-            _log("MN Winner: $mn_winner", 2);
-            if ($mn_winner !== false) {
+            // Reward the masternode
+            $masternodeWinner = Masternode::query()
+                ->where('status', 1)
+                ->where('blacklist', '<', $height)
+                ->where('height', '<', $height - 360)
+                ->orderBy('last_won')
+                ->orderBy('public_key')
+                ->limit(1)
+                ->value('public_key');
+
+            Log::info('MN Winner: '.$masternodeWinner);
+
+            if ($masternodeWinner) {
                 $mn_reward = round(0.33 * $reward, 8);
                 $reward = round($reward - $mn_reward, 8);
                 $reward = number_format($reward, 8, ".", "");
                 $mn_reward = number_format($mn_reward, 8, ".", "");
-                _log("MN Reward: $mn_reward", 2);
+                Log::info('MN Reward: '.$mn_reward);
             }
         }
 
@@ -572,11 +570,12 @@ final class Block extends Model
             "fee"        => "0.00000000",
             "public_key" => $public_key,
         ];
+
         ksort($transaction);
         $reward_signature = $txn->sign($transaction, $private_key);
 
         // add the block to the blockchain
-        $res = $this->add(
+        $result = $this->add(
             $height,
             $public_key,
             $nonce,
@@ -587,27 +586,30 @@ final class Block extends Model
             $reward_signature,
             $argon
         );
-        if (!$res) {
-            _log("Forge failed - Block->Add() failed");
-            return false;
+
+        if ($result) {
+            return true;
         }
-        return true;
+
+        Log::info('Forge failed - Block->Add() failed');
+
+        return false;
     }
 
-    public function blacklist_masternodes()
+    public function blacklistMasternodes(): bool
     {
         global $db;
-        _log("Checking if there are masternodes to be blacklisted", 2);
+        Log::info('Checking if there are masternodes to be blacklisted');
         $current = $this->current();
         if (($current['height'] - 1) % 3 != 2) {
-            _log("bad height");
-            return;
+            Log::info('Bad height');
+            return false;
         }
         $last = $this->get($current['height'] - 1);
         $total_time = $current['date'] - $last['date'];
-        _log("blacklist total time $total_time");
+        Log::info("blacklist total time $total_time");
         if ($total_time <= 600 && $current['height'] < 80500) {
-            return;
+            return false;
         }
         if ($current['height'] >= 80500 && $total_time < 360) {
             return false;
@@ -622,31 +624,41 @@ final class Block extends Model
             $tem = floor($total_time / 600);
         }
 
-        Log::info("We have masternodes to blacklist - $tem", 2);
+        Log::info('We have masternodes to blacklist - '.$tem);
 
-        $ban = $db->run(
-            "SELECT public_key, blacklist, fails, last_won FROM masternode WHERE status=1 AND blacklist<:current AND height<:start ORDER by last_won ASC, public_key ASC LIMIT 0,:limit",
-            [":current" => $last['height'], ":start" => $last['height'] - 360, ":limit" => $tem]
-        );
+        $bans = Masternode::query()
+            ->where('status', 1)
+            ->where('blacklist', $current->height)
+            ->where('height', $last['height'] - 360)
+            ->orderBy('last_won')
+            ->orderBy('public_key')
+            ->offset(0)
+            ->limit($tem)
+            ->get(['public_key', 'blacklist', 'fails', 'last_won']);
 
-        Log::info(json_encode($ban));
+        Log::info(json_encode($bans));
 
         $i = 0;
-        foreach ($ban as $b) {
-            $this->masternode_log($b['public_key'], $current['height'], $current['id']);
-            _log("Blacklisting masternode - $i $b[public_key]", 2);
+        foreach ($bans as $ban) {
+            $this->masternodeLog($ban->public_key, $current->height, $current->id);
+            Log::info("Blacklisting masternode - $i $ban[public_key]");
             $btime = 10;
             if ($current['height'] > 83000) {
                 $btime = 360;
             }
-            $db->run("UPDATE masternode SET fails=fails+1, blacklist=:blacklist WHERE public_key=:public_key",
-                [":public_key" => $b['public_key'], ":blacklist" => $current['height'] + (($b['fails'] + 1) * $btime)]);
+
+            $masternode = Masternode::query()->where('public_key', $ban->public_key);
+            $masternode->update(['blacklist' => $current->height + (($ban['fails'] + 1) * $btime)]);
+            $masternode->increment('fails');
+
             $i++;
         }
+
+        return true;
     }
 
     // check if the arguments are good for mining a specific block
-    public function mine($public_key, $nonce, $argon, $difficulty = 0, $current_id = 0, $current_height = 0, $time = 0)
+    public function mine($publicKey, $nonce, $argon, $difficulty = 0, $currentId = 0, $currentHeight = 0, $time = 0)
     {
         // Invalid future blocks
         if ($time > time() + 30) {
@@ -655,10 +667,10 @@ final class Block extends Model
 
 
         // If no id is specified, we use the current
-        if ($current_id === 0 || $current_height === 0) {
+        if ($currentId === 0 || $currentHeight === 0) {
             $current = $this->current();
-            $current_id = $current['id'];
-            $current_height = $current['height'];
+            $currentId = $current['id'];
+            $currentHeight = $current['height'];
         }
 
         Log::info('Block Timestamp '.$time);
@@ -666,125 +678,137 @@ final class Block extends Model
         if ($time == 0) {
             $time = time();
         }
-        // get the current difficulty if empty
+
+        // Get the current difficulty if empty
         if ($difficulty === 0) {
             $difficulty = $this->difficulty();
         }
 
-        if (empty($public_key)) {
+        if (empty($publicKey)) {
             Log::info('Empty public key', 1);
             return false;
         }
 
-        if ($current_height < 80000) {
-
-            // the argon parameters are hardcoded to avoid any exploits
-            if ($current_height > 10800) {
+        if ($currentHeight < 80000) {
+            // The argon parameters are hardcoded to avoid any exploits
+            if ($currentHeight > 10800) {
                 Log::info('Block below 80000 but after 10800, using 512MB argon');
                 $argon = '$argon2i$v=19$m=524288,t=1,p=1'.$argon; //10800 block hard fork - resistance against gpu
             } else {
                 Log::info('Block below 10800, using 16MB argon');
                 $argon = '$argon2i$v=19$m=16384,t=4,p=4'.$argon;
             }
-        } elseif ($current_height >= 80458) {
-            if ($current_height % 2 == 0) {
-                // cpu mining
-                Log::info("CPU Mining - $current_height", 2);
+        } elseif ($currentHeight >= 80458) {
+            if ($currentHeight % 2 == 0) {
+                // CPU mining
+                Log::info("CPU Mining - $currentHeight", 2);
                 $argon = '$argon2i$v=19$m=524288,t=1,p=1'.$argon;
             } else {
-                // gpu mining
-                Log::info("GPU Mining - $current_height", 2);
+                // GPU mining
+                Log::info("GPU Mining - $currentHeight", 2);
                 $argon = '$argon2i$v=19$m=16384,t=4,p=4'.$argon;
             }
         } else {
-            Log::info("Block > 80000 - $current_height", 2);
-            if ($current_height % 3 == 0) {
-                // cpu mining
-                Log::info("CPU Mining - $current_height", 2);
+            Log::info("Block > 80000 - $currentHeight", 2);
+            if ($currentHeight % 3 == 0) {
+                // CPU mining
+                Log::info("CPU Mining - $currentHeight", 2);
                 $argon = '$argon2i$v=19$m=524288,t=1,p=1'.$argon;
-            } elseif ($current_height % 3 == 1) {
-                // gpu mining
-                Log::info("GPU Mining - $current_height", 2);
+            } elseif ($currentHeight % 3 == 1) {
+                // GPU mining
+                Log::info("GPU Mining - $currentHeight", 2);
                 $argon = '$argon2i$v=19$m=16384,t=4,p=4'.$argon;
             } else {
-                Log::info("Masternode Mining - $current_height", 2);
-                // masternode
-                global $db;
+                Log::info("Masternode Mining - $currentHeight", 2);
+                // Masternode
 
-                // fake time
+                // Fake time
                 if ($time > time()) {
-                    Log::info("Masternode block in the future - $time", 1);
+                    Log::info('Masternode block in the future - '.$time);
+
                     return false;
                 }
 
-                // selecting the masternode winner in order
-                $winner = $db->single(
-                    "SELECT public_key FROM masternode WHERE status=1 AND blacklist<:current AND height<:start ORDER by last_won ASC, public_key ASC LIMIT 1",
-                    [":current" => $current_height, ":start" => $current_height - 360]
-                );
+                // Selecting the masternode winner in order
+                $winner = Masternode::query()
+                    ->where('status', 1)
+                    ->where('blacklist', '<', $currentHeight)
+                    ->where('height', '<', $currentHeight)
+                    ->orderBy('last_won')
+                    ->orderBy('public_key')
+                    ->limit(1)
+                    ->value('public_key');
 
-                // if there are no active masternodes, give the block to gpu
-                if ($winner === false) {
+                // If there are no active masternodes, give the block to gpu
+                if (!$winner) {
                     Log::info("No active masternodes, reverting to gpu", 1);
                     $argon = '$argon2i$v=19$m=16384,t=4,p=4'.$argon;
                 } else {
                     Log::info("The first masternode winner should be $winner", 1);
 
-                    // 4 mins need to pass since last block
-                    $last_time = $db->single("SELECT `date` FROM blocks WHERE height=:height",
-                        [":height" => $current_height]);
-                    if ($time - $last_time < 240 && !config('arionum.app.testnet')) {
-                        Log::info("4 minutes have not passed since the last block - $time", 1);
+                    // 4 minutes need to pass since last block
+                    $lastTime = Block::query()->where('height', $currentHeight)->value('date');
+
+                    if ($time - $lastTime < 240 && !config('arionum.app.testnet')) {
+                        Log::info('4 minutes have not passed since the last block - '.$time);
                         return false;
                     }
 
-                    if ($public_key == $winner) {
+                    if ($publicKey == $winner) {
                         return true;
                     }
 
-                    // If 10 mins have passed, try to give the block to the next masternode and do this every 10mins
-                    Log::info("Last block time: $last_time, difference: ".($time - $last_time), 3);
-                    if (($time - $last_time > 600 && $current_height < 80500) || ($time - $last_time > 360 && $current_height >= 80500)) {
-                        Log::info('Current public_key '.$public_key, 3);
-                        if ($current_height >= 80500) {
-                            $total_time = $time - $last_time;
+                    // If 10 minutes have passed
+                    // Try to give the block to the next masternode and do this every 10 minutes
+                    Log::info('Last block time: '.$lastTime.', difference: '.($time - $lastTime));
+                    if (($time - $lastTime > 600 && $currentHeight < 80500) ||
+                        ($time - $lastTime > 360 && $currentHeight >= 80500)
+                    ) {
+                        Log::info('Current public_key '.$publicKey, 3);
+                        if ($currentHeight >= 80500) {
+                            $total_time = $time - $lastTime;
                             $total_time -= 360;
                             $tem = floor($total_time / 120) + 1;
                         } else {
-                            $tem = floor(($time - $last_time) / 600);
+                            $tem = floor(($time - $lastTime) / 600);
                         }
 
-                        $winner = $db->single(
-                            "SELECT public_key FROM masternode WHERE status=1 AND blacklist<:current AND height<:start ORDER by last_won ASC, public_key ASC LIMIT :tem,1",
-                            [":current" => $current_height, ":start" => $current_height - 360, ":tem" => $tem]
-                        );
+                        $winner = Masternode::query()
+                            ->where('status', 1)
+                            ->where('blacklist', '<', $currentHeight)
+                            ->where('height', '<', $currentHeight)
+                            ->orderBy('last_won')
+                            ->orderBy('public_key')
+                            ->offset($tem)
+                            ->limit(1)
+                            ->value('public_key');
 
                         Log::info('Moving to the next masternode - '.$tem.' - '.$winner);
 
                         // if all masternodes are dead, give the block to gpu
-                        if ($winner === false || ($tem >= 5 && $current_height >= 80500)) {
+                        if ($winner === false || ($tem >= 5 && $currentHeight >= 80500)) {
                             Log::info('All masternodes failed, giving the block to gpu');
                             $argon = '$argon2i$v=19$m=16384,t=4,p=4'.$argon;
-                        } elseif ($winner == $public_key) {
+                        } elseif ($winner === $publicKey) {
                             return true;
                         }
 
                         return false;
                     }
 
-                    Log::info("A different masternode should win this block $public_key - $winner", 2);
+                    Log::info('A different masternode should win this block '.$publicKey.' - '.$winner);
                     return false;
                 }
             }
         }
 
-        // The hash base for agon
-        $base = "$public_key-$nonce-".$current_id."-$difficulty";
-
+        // The hash base for argon
+        $base = $publicKey.'-'.$nonce.'-'.$currentId.'-'.$difficulty;
 
         // Check argon's hash validity
         if (!password_verify($base, $argon)) {
-            Log::info("Argon verify failed - $base - $argon", 2);
+            Log::info('Argon verify failed - '.$base.' - '.$argon);
+
             return false;
         }
 
@@ -861,6 +885,7 @@ final class Block extends Model
             if (empty($x['src'])) {
                 $x['src'] = $account->getAddress($x['public_key']);
             }
+
             if (!$bootstrapping) {
                 // Validate the transaction
                 if (!$transaction->check($x, $height)) {
@@ -872,7 +897,7 @@ final class Block extends Model
                 }
 
 
-                // prepare total balance
+                // Prepare the total balance
                 $balance[$x['src']] += $x['val'] + $x['fee'];
 
                 // Check if the transaction is already on the blockchain
@@ -892,21 +917,24 @@ final class Block extends Model
         if (!$bootstrapping) {
             // Check if the account has enough balance to perform the transaction
             foreach ($balance as $id => $bal) {
-                $res = $db->single(
-                    "SELECT COUNT(1) FROM accounts WHERE id=:id AND balance>=:balance",
-                    [":id" => $id, ":balance" => $bal]
-                );
-                if ($res == 0) {
+                $result = Account::query()
+                    ->where('id', $id)
+                    ->where('balance', $balance)
+                    ->first();
+
+                if ($result->doesntExist()) {
                     Log::info('Not enough balance for transaction - '.$id);
-                    return false; // not enough balance for the transactions
+
+                    return false;
                 }
             }
         }
-        // if the test argument is false, add the transactions to the blockchain
-        if ($test == false) {
+
+        // If the test argument is false, add the transactions to the blockchain
+        if (!$test) {
             foreach ($data as $d) {
                 $res = $transaction->add($block, $height, $d);
-                if ($res == false) {
+                if ($res === false) {
                     return false;
                 }
             }
@@ -915,7 +943,6 @@ final class Block extends Model
         return true;
     }
 
-    // Delete the last X blocks
     public function pop($blocksToRemove = 1)
     {
         $current = $this->current();
@@ -923,7 +950,6 @@ final class Block extends Model
         $this->deleteGreaterThan($current['height'] - $blocksToRemove + 1);
     }
 
-    // Delete all blocks >= height
     public function deleteGreaterThan($height)
     {
         if ($height < 2) {
@@ -961,7 +987,6 @@ final class Block extends Model
         return true;
     }
 
-    // sign a new block, used when mining
     public function sign($generator, $height, $date, $nonce, $data, $key, $difficulty, $argon)
     {
         $json = json_encode($data);
@@ -971,7 +996,6 @@ final class Block extends Model
         return $signature;
     }
 
-    // Generate the sha512 hash of the block data and converts it to base58
     public function hash($public_key, $height, $date, $nonce, $data, $signature, $difficulty, $argon)
     {
         $json = json_encode($data);
@@ -981,33 +1005,26 @@ final class Block extends Model
     }
 
 
-    // Exports the block data, to be used when submitting to other peers
-    public function export($id = "", $height = "")
+    public function export()
     {
-        if (empty($id) && empty($height)) {
-            return false;
-        }
+        $exportData = $this->toArray();
 
-        $block = !empty($height) ? Block::findByHeight($height) : Block::find($id);
-
-        if (!$block) {
-            return false;
-        }
-
-        $transactions = Transaction::query()->where('version', '>', 0)->where('block', $block->id)->get();
-        $block->data = $transactions;
+        $exportData['data'] = Transaction::query()
+            ->where('version', '>', 0)
+            ->where('block', $this->id)
+            ->get();
 
         /** @var Transaction $generator */
         $generator = Transaction::query()
             ->where('version', 0)
-            ->where('block', $block->id)
+            ->where('block', $this->id)
             ->where('message', '')
             ->get(['public_key', 'signature']);
 
-        $block->public_key = $generator->public_key;
-        $block->reward_signature = $generator->signature;
+        $exportData['public_key'] = $generator->public_key;
+        $exportData['reward_signature'] = $generator->signature;
 
-        return $block;
+        return $exportData;
     }
 
     public function findByHeight(int $height): self
