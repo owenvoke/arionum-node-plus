@@ -219,18 +219,21 @@ final class Account extends Model
     public function getTransactions($limit = 100): Builder
     {
         return Transaction::query()
-            ->orWhere('dst', $this->public_key)
-            ->orWhere('public_key', $this->public_key)
-            ->orWhere('dst', $this->alias)
+            ->where(function (Builder $query) {
+                $query->where('dst', $this->public_key)
+                    ->orWhere('public_key', $this->public_key)
+                    ->orWhere('dst', $this->alias);
+            })
             ->orderByDesc('height')
             ->limit($limit);
     }
 
     public function getMempoolTransactions(): Builder
     {
-        return Mempool::query()
-            ->orWhere('src', $this->id)
-            ->orWhere('dst', $this->id);
+        return Mempool::query()->where(function (Builder $query) {
+            $query->where('src', $this->id)
+                ->orWhere('dst', $this->id);
+        });
     }
 
     public function getMasternode(): Masternode
