@@ -2,6 +2,8 @@
 
 namespace App;
 
+use App\Helpers\EllipticCurve;
+use App\Helpers\Key;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -58,7 +60,7 @@ final class Block extends Model
         Carbon $date,
         $signature,
         $difficulty,
-        $reward_signature,
+        $rewardSignature,
         $argon,
         $bootstrapping = false
     ) {
@@ -89,15 +91,12 @@ final class Block extends Model
                 return false;
             }
 
-            if (!$this->parse_block($hash, $height, $data, true)) {
+            if (!$this->parseBlock($hash, $height, $data, true)) {
                 Log::info('Parse block failed');
 
                 return false;
             }
         }
-
-        // lock table to avoid race conditions on blocks
-        DB::raw('LOCK TABLES blocks WRITE, accounts WRITE, transactions WRITE, mempool WRITE, masternode WRITE, peers write, config WRITE');
 
         $reward = $this->reward($height, $data);
 
@@ -111,41 +110,41 @@ final class Block extends Model
                 ->where('blacklist', '<', $height)
                 ->where('height', '<', $height - 360)
                 ->orderBy('last_won')
-                ->limit(
-                    "SELECT public_key FROM masternode WHERE status=1 AND blacklist<:current AND height<:start ORDER by last_won ASC, public_key ASC LIMIT 1",
-                    [":current" => $height, ":start" => $height - 360]
-                );
+                ->orderBy('public_key')
+                ->limit(1)
+                ->value('public_key');
 
             Log::info('MN Winner: '.$masternodeWinner);
 
             if ($masternodeWinner) {
-                $mn_reward = round(0.33 * $reward, 8);
-                $reward = round($reward - $mn_reward, 8);
+                $masternodeReward = round(0.33 * $reward, 8);
+                $reward = round($reward - $masternodeReward, 8);
                 $reward = number_format($reward, 8, ".", "");
-                $mn_reward = number_format($mn_reward, 8, ".", "");
-                Log::info('MN Reward: '.$masternodeWinner);
+                $masternodeReward = number_format($masternodeReward, 8, ".", "");
+                Log::info('MN Reward: '.$masternodeReward);
             }
         }
 
-
         // the reward transaction
-        $transaction = [
-            "src"        => $generator,
-            "dst"        => $generator,
-            "val"        => $reward,
-            "version"    => 0,
-            "date"       => $date,
-            "message"    => $msg,
-            "fee"        => "0.00000000",
-            "public_key" => $publicKey,
-        ];
-        $transaction['signature'] = $reward_signature;
-        // hash the transaction
+        $transaction = Transaction::make([
+            'src'        => $generator,
+            'dst'        => $generator,
+            'val'        => $reward,
+            'version'    => 0,
+            'date'       => $date,
+            'message'    => $msg,
+            'fee'        => '0.00000000',
+            'public_key' => $publicKey,
+        ]);
+
+        $transaction->signature = $rewardSignature;
+
+        // Hash the transaction
         $transaction['id'] = $trx->hash($transaction);
         if (!$bootstrapping) {
             // check the signature
             $info = $transaction['val']."-".$transaction['fee']."-".$transaction['dst']."-".$transaction['message']."-".$transaction['version']."-".$transaction['public_key']."-".$transaction['date'];
-            if (!$acc->checkSignature($info, $reward_signature, $publicKey)) {
+            if (!$acc->checkSignature($info, $rewardSignature, $publicKey)) {
                 Log::info('Reward signature failed');
                 return false;
             }
@@ -186,18 +185,18 @@ final class Block extends Model
             $db->exec("UNLOCK TABLES");
             return false;
         }
-        if ($mn_winner !== false && $height >= 80458 && $mn_reward > 0) {
+        if ($mn_winner !== false && $height >= 80458 && $masternodeReward > 0) {
             $db->run("UPDATE accounts SET balance=balance+:bal WHERE public_key=:pub",
-                [":pub" => $mn_winner, ":bal" => $mn_reward]);
+                [":pub" => $mn_winner, ":bal" => $masternodeReward]);
             $bind = [
                 ":id"         => hex2coin(hash("sha512", "mn".$hash.$height.$mn_winner)),
                 ":public_key" => $publicKey,
                 ":height"     => $height,
                 ":block"      => $hash,
                 ":dst"        => $acc->getAddress($mn_winner),
-                ":val"        => $mn_reward,
+                ":val"        => $masternodeReward,
                 ":fee"        => 0,
-                ":signature"  => $reward_signature,
+                ":signature"  => $rewardSignature,
                 ":version"    => 0,
                 ":date"       => $date,
                 ":message"    => 'masternode',
@@ -225,7 +224,7 @@ final class Block extends Model
         }
 
         // parse the block's transactions and insert them to db
-        $res = $this->parse_block($hash, $height, $data, false, $bootstrapping);
+        $res = $this->parseBlock($hash, $height, $data, false, $bootstrapping);
 
         if (($height - 1) % 3 == 2 && $height >= 80000 && $height < 80458) {
             $this->blacklist_masternodes();
@@ -440,54 +439,50 @@ final class Block extends Model
     }
 
     // calculates the maximum block size and increase by 10% the number of transactions if > 100 on the last 100 blocks
-    public function max_transactions()
+    public function maxTransactions()
     {
-        global $db;
-        $current = $this->current();
-        $limit = $current['height'] - 100;
-        $avg = $db->single("SELECT AVG(transactions) FROM blocks WHERE height>:limit", [":limit" => $limit]);
-        if ($avg < 100) {
-            return 100;
-        }
-        return ceil($avg * 1.1);
+        $limit = $this->current()->height - 100;
+
+        $average = self::query()->where('height', '>', $limit)->average('transactions');
+        return ($average < 100) ? 100 : ceil($average * 1.1);
     }
 
-    // calculate the reward for each block
-    public function reward($id, $data = [])
+    // Calculate the reward for each block
+    public function reward($data = [])
     {
-        // starting reward
+        // Starting reward
         $reward = 1000;
 
-        // decrease by 1% each 10800 blocks (approx 1 month)
-
-        $factor = floor($id / 10800) / 100;
+        // Decrease by 1% each 10800 blocks (approx 1 month)
+        $factor = floor($this->height / 10800) / 100;
         $reward -= $reward * $factor;
         if ($reward < 0) {
             $reward = 0;
         }
 
-        // calculate the transaction fees
+        // Calculate the transaction fees
         $fees = 0;
         if (count($data) > 0) {
             foreach ($data as $x) {
                 $fees += $x['fee'];
             }
         }
+
         return number_format($reward + $fees, 8, '.', '');
     }
 
     // checks the validity of a block
-    public function check($data)
+    public function check()
     {
         // argon must have at least 20 chars
-        if (strlen($data['argon']) < 20) {
-            _log("Invalid block argon - $data[argon]");
+        if (strlen($this->argon) < 20) {
+            Log::info('Invalid block argon - '.$this->argon);
             return false;
         }
         $acc = new Account();
 
-        if ($data['date'] > time() + 30) {
-            _log("Future block - $data[date] $data[public_key]", 2);
+        if ($this->date > time() + 30) {
+            _log('Future block - '.$this->date.' '.$this->generator, 2);
             return false;
         }
 
@@ -533,7 +528,7 @@ final class Block extends Model
 
         // get the mempool transactions
         $txn = new Transaction();
-        $data = $txn->mempool($this->max_transactions());
+        $data = $txn->mempool($this->maxTransactions());
 
 
         $difficulty = $this->difficulty();
@@ -626,12 +621,16 @@ final class Block extends Model
         } else {
             $tem = floor($total_time / 600);
         }
-        _log("We have masternodes to blacklist - $tem", 2);
+
+        Log::info("We have masternodes to blacklist - $tem", 2);
+
         $ban = $db->run(
             "SELECT public_key, blacklist, fails, last_won FROM masternode WHERE status=1 AND blacklist<:current AND height<:start ORDER by last_won ASC, public_key ASC LIMIT 0,:limit",
             [":current" => $last['height'], ":start" => $last['height'] - 360, ":limit" => $tem]
         );
-        _log(json_encode($ban));
+
+        Log::info(json_encode($ban));
+
         $i = 0;
         foreach ($ban as $b) {
             $this->masternode_log($b['public_key'], $current['height'], $current['id']);
@@ -649,21 +648,21 @@ final class Block extends Model
     // check if the arguments are good for mining a specific block
     public function mine($public_key, $nonce, $argon, $difficulty = 0, $current_id = 0, $current_height = 0, $time = 0)
     {
-        global $_config;
-
-        // invalid future blocks
+        // Invalid future blocks
         if ($time > time() + 30) {
             return false;
         }
 
 
-        // if no id is specified, we use the current
+        // If no id is specified, we use the current
         if ($current_id === 0 || $current_height === 0) {
             $current = $this->current();
             $current_id = $current['id'];
             $current_height = $current['height'];
         }
-        _log("Block Timestamp $time", 3);
+
+        Log::info('Block Timestamp '.$time);
+
         if ($time == 0) {
             $time = time();
         }
@@ -673,7 +672,7 @@ final class Block extends Model
         }
 
         if (empty($public_key)) {
-            _log("Empty public key", 1);
+            Log::info('Empty public key', 1);
             return false;
         }
 
@@ -681,40 +680,40 @@ final class Block extends Model
 
             // the argon parameters are hardcoded to avoid any exploits
             if ($current_height > 10800) {
-                _log("Block below 80000 but after 10800, using 512MB argon", 2);
+                Log::info('Block below 80000 but after 10800, using 512MB argon');
                 $argon = '$argon2i$v=19$m=524288,t=1,p=1'.$argon; //10800 block hard fork - resistance against gpu
             } else {
-                _log("Block below 10800, using 16MB argon", 2);
+                Log::info('Block below 10800, using 16MB argon');
                 $argon = '$argon2i$v=19$m=16384,t=4,p=4'.$argon;
             }
         } elseif ($current_height >= 80458) {
             if ($current_height % 2 == 0) {
                 // cpu mining
-                _log("CPU Mining - $current_height", 2);
+                Log::info("CPU Mining - $current_height", 2);
                 $argon = '$argon2i$v=19$m=524288,t=1,p=1'.$argon;
             } else {
                 // gpu mining
-                _log("GPU Mining - $current_height", 2);
+                Log::info("GPU Mining - $current_height", 2);
                 $argon = '$argon2i$v=19$m=16384,t=4,p=4'.$argon;
             }
         } else {
-            _log("Block > 80000 - $current_height", 2);
+            Log::info("Block > 80000 - $current_height", 2);
             if ($current_height % 3 == 0) {
                 // cpu mining
-                _log("CPU Mining - $current_height", 2);
+                Log::info("CPU Mining - $current_height", 2);
                 $argon = '$argon2i$v=19$m=524288,t=1,p=1'.$argon;
             } elseif ($current_height % 3 == 1) {
                 // gpu mining
-                _log("GPU Mining - $current_height", 2);
+                Log::info("GPU Mining - $current_height", 2);
                 $argon = '$argon2i$v=19$m=16384,t=4,p=4'.$argon;
             } else {
-                _log("Masternode Mining - $current_height", 2);
+                Log::info("Masternode Mining - $current_height", 2);
                 // masternode
                 global $db;
 
                 // fake time
                 if ($time > time()) {
-                    _log("Masternode block in the future - $time", 1);
+                    Log::info("Masternode block in the future - $time", 1);
                     return false;
                 }
 
@@ -726,25 +725,27 @@ final class Block extends Model
 
                 // if there are no active masternodes, give the block to gpu
                 if ($winner === false) {
-                    _log("No active masternodes, reverting to gpu", 1);
+                    Log::info("No active masternodes, reverting to gpu", 1);
                     $argon = '$argon2i$v=19$m=16384,t=4,p=4'.$argon;
                 } else {
-                    _log("The first masternode winner should be $winner", 1);
+                    Log::info("The first masternode winner should be $winner", 1);
+
                     // 4 mins need to pass since last block
                     $last_time = $db->single("SELECT `date` FROM blocks WHERE height=:height",
                         [":height" => $current_height]);
-                    if ($time - $last_time < 240 && $_config['testnet'] == false) {
-                        _log("4 minutes have not passed since the last block - $time", 1);
+                    if ($time - $last_time < 240 && !config('arionum.app.testnet')) {
+                        Log::info("4 minutes have not passed since the last block - $time", 1);
                         return false;
                     }
 
                     if ($public_key == $winner) {
                         return true;
                     }
-                    // if 10 mins have passed, try to give the block to the next masternode and do this every 10mins
-                    _log("Last block time: $last_time, difference: ".($time - $last_time), 3);
+
+                    // If 10 mins have passed, try to give the block to the next masternode and do this every 10mins
+                    Log::info("Last block time: $last_time, difference: ".($time - $last_time), 3);
                     if (($time - $last_time > 600 && $current_height < 80500) || ($time - $last_time > 360 && $current_height >= 80500)) {
-                        _log("Current public_key $public_key", 3);
+                        Log::info('Current public_key '.$public_key, 3);
                         if ($current_height >= 80500) {
                             $total_time = $time - $last_time;
                             $total_time -= 360;
@@ -752,93 +753,103 @@ final class Block extends Model
                         } else {
                             $tem = floor(($time - $last_time) / 600);
                         }
+
                         $winner = $db->single(
                             "SELECT public_key FROM masternode WHERE status=1 AND blacklist<:current AND height<:start ORDER by last_won ASC, public_key ASC LIMIT :tem,1",
                             [":current" => $current_height, ":start" => $current_height - 360, ":tem" => $tem]
                         );
-                        _log("Moving to the next masternode - $tem - $winner", 1);
+
+                        Log::info('Moving to the next masternode - '.$tem.' - '.$winner);
+
                         // if all masternodes are dead, give the block to gpu
                         if ($winner === false || ($tem >= 5 && $current_height >= 80500)) {
-                            _log("All masternodes failed, giving the block to gpu", 1);
+                            Log::info('All masternodes failed, giving the block to gpu');
                             $argon = '$argon2i$v=19$m=16384,t=4,p=4'.$argon;
                         } elseif ($winner == $public_key) {
                             return true;
-                        } else {
-                            return false;
                         }
-                    } else {
-                        _log("A different masternode should win this block $public_key - $winner", 2);
+
                         return false;
                     }
+
+                    Log::info("A different masternode should win this block $public_key - $winner", 2);
+                    return false;
                 }
             }
         }
 
-        // the hash base for agon
+        // The hash base for agon
         $base = "$public_key-$nonce-".$current_id."-$difficulty";
 
 
-        // check argon's hash validity
+        // Check argon's hash validity
         if (!password_verify($base, $argon)) {
-            _log("Argon verify failed - $base - $argon", 2);
+            Log::info("Argon verify failed - $base - $argon", 2);
             return false;
         }
 
-        // all nonces are valid in testnet
-        if ($_config['testnet'] == true) {
+        // All nonces are valid in testnet
+        if (config('arionum.app.testnet')) {
             return true;
         }
 
-        // prepare the base for the hashing
+        // Prepare the base for the hashing
         $hash = $base.$argon;
 
-        // hash the base 6 times
+        // Hash the base 6 times
         for ($i = 0; $i < 5;
              $i++) {
             $hash = hash("sha512", $hash, true);
         }
         $hash = hash("sha512", $hash);
 
-        // split it in 2 char substrings, to be used as hex
+        // Split it in 2 char substrings, to be used as hex
         $m = str_split($hash, 2);
 
-        // calculate a number based on 8 hex numbers - no specific reason, we just needed an algoritm to generate the number from the hash
-        $duration = hexdec($m[10]).hexdec($m[15]).hexdec($m[20]).hexdec($m[23]).hexdec($m[31]).hexdec($m[40]).hexdec($m[45]).hexdec($m[55]);
+        // Calculate a number based on 8 hex numbers
+        // No specific reason, we just needed an algorithm to generate the number from the hash
+        $duration = hexdec($m[10]).
+            hexdec($m[15]).
+            hexdec($m[20]).
+            hexdec($m[23]).
+            hexdec($m[31]).
+            hexdec($m[40]).
+            hexdec($m[45]).
+            hexdec($m[55]);
 
-        // the number must not start with 0
+        // The number must not start with 0
         $duration = ltrim($duration, '0');
 
-        // divide the number by the difficulty and create the deadline
+        // Divide the number by the difficulty and create the deadline
         $result = gmp_div($duration, $difficulty);
 
-        // if the deadline >0 and <=240, the arguments are valid fora  block win
-        if ($result > 0 && $result <= 240) {
-            return true;
-        }
-        return false;
+        // If the deadline >0 and <=240, the arguments are valid fora  block win
+        return ($result > 0 && $result <= 240);
     }
 
-
-    // parse the block transactions
-    public function parse_block($block, $height, $data, $test = true, $bootstrapping = false)
+    // Parse the block transactions
+    public function parseBlock($block, $height, array $data, $test = true, $bootstrapping = false)
     {
-        global $db;
-        // data must be array
-        if ($data === false) {
-            _log("Block data is false", 3);
+        // Data must be array
+        if (!$data) {
+            Log::info('Block data is false');
+
             return false;
         }
-        $acc = new Account();
-        $trx = new Transaction();
-        // no transactions means all are valid
+
+        $account = new Account();
+        $transaction = new Transaction();
+
+        // No transactions means all are valid
         if (count($data) == 0) {
             return true;
         }
 
-        // check if the number of transactions is not bigger than current block size
-        $max = $this->max_transactions();
+        // Check if the number of transactions is not bigger than current block size
+        $max = $this->maxTransactions();
+
         if (count($data) > $max) {
-            _log("Too many transactions in block", 3);
+            Log::info('Too many transactions in block');
             return false;
         }
 
@@ -846,14 +857,14 @@ final class Block extends Model
         $mns = [];
 
         foreach ($data as &$x) {
-            // get the sender's account if empty
+            // Get the sender's account if empty
             if (empty($x['src'])) {
-                $x['src'] = $acc->getAddress($x['public_key']);
+                $x['src'] = $account->getAddress($x['public_key']);
             }
             if (!$bootstrapping) {
-                //validate the transaction
-                if (!$trx->check($x, $height)) {
-                    _log("Transaction check failed - $x[id]", 3);
+                // Validate the transaction
+                if (!$transaction->check($x, $height)) {
+                    Log::info('Transaction check failed - '.$x['id']);
                     return false;
                 }
                 if ($x['version'] >= 100 && $x['version'] < 110) {
@@ -864,28 +875,29 @@ final class Block extends Model
                 // prepare total balance
                 $balance[$x['src']] += $x['val'] + $x['fee'];
 
-                // check if the transaction is already on the blockchain
-                if ($db->single("SELECT COUNT(1) FROM transactions WHERE id=:id", [":id" => $x['id']]) > 0) {
-                    _log("Transaction already on the blockchain - $x[id]", 3);
+                // Check if the transaction is already on the blockchain
+                if (Transaction::query()->find($x['id'])->exists()) {
+                    Log::info('Transaction already on the blockchain - '.$x['id']);
                     return false;
                 }
             }
         }
-        //only a single masternode transaction per block for any masternode
+
+        // Only a single masternode transaction per block for any masternode
         if (count($mns) != count(array_unique($mns))) {
-            _log("Too many masternode transactions", 3);
+            Log::info('Too many masternode transactions');
             return false;
         }
 
         if (!$bootstrapping) {
-            // check if the account has enough balance to perform the transaction
+            // Check if the account has enough balance to perform the transaction
             foreach ($balance as $id => $bal) {
                 $res = $db->single(
                     "SELECT COUNT(1) FROM accounts WHERE id=:id AND balance>=:balance",
                     [":id" => $id, ":balance" => $bal]
                 );
                 if ($res == 0) {
-                    _log("Not enough balance for transaction - $id", 3);
+                    Log::info('Not enough balance for transaction - '.$id);
                     return false; // not enough balance for the transactions
                 }
             }
@@ -893,7 +905,7 @@ final class Block extends Model
         // if the test argument is false, add the transactions to the blockchain
         if ($test == false) {
             foreach ($data as $d) {
-                $res = $trx->add($block, $height, $d);
+                $res = $transaction->add($block, $height, $d);
                 if ($res == false) {
                     return false;
                 }
@@ -903,88 +915,51 @@ final class Block extends Model
         return true;
     }
 
-    // delete last X blocks
-    public function pop($no = 1)
+    // Delete the last X blocks
+    public function pop($blocksToRemove = 1)
     {
         $current = $this->current();
-        $this->deleteGreaterThan($current['height'] - $no + 1);
+
+        $this->deleteGreaterThan($current['height'] - $blocksToRemove + 1);
     }
 
-    // delete all blocks >= height
+    // Delete all blocks >= height
     public function deleteGreaterThan($height)
     {
         if ($height < 2) {
             $height = 2;
         }
-        global $db;
+
         $trx = new Transaction();
 
-        $r = $db->run("SELECT * FROM blocks WHERE height>=:height ORDER by height DESC", [":height" => $height]);
+        $blocks = Block::query()->where('height', '>=', $height)->orderByDesc('height')->get();
 
-        if (count($r) == 0) {
-            return;
+        if ($blocks->isEmpty()) {
+            return false;
         }
-        $db->beginTransaction();
-        $db->exec("LOCK TABLES blocks WRITE, accounts WRITE, transactions WRITE, mempool WRITE, masternode WRITE");
-        foreach ($r as $x) {
-            $res = $trx->reverse($x['id']);
+
+        DB::raw('LOCK TABLES blocks WRITE, accounts WRITE, transactions WRITE, mempool WRITE, masternode WRITE');
+
+        foreach ($blocks as $block) {
+            $res = $trx->reverse($block->id);
             if ($res === false) {
-                _log("A transaction could not be reversed. Delete block failed.");
-                $db->rollback();
-                $db->exec("UNLOCK TABLES");
+                Log::info('A transaction could not be reversed. Delete block failed.');
+                DB::raw('UNLOCK TABLES');
+
                 return false;
             }
-            $res = $db->run("DELETE FROM blocks WHERE id=:id", [":id" => $x['id']]);
-            if ($res != 1) {
-                _log("Delete block failed.");
-                $db->rollback();
-                $db->exec("UNLOCK TABLES");
+
+            if (!$block->delete()) {
+                Log::info('Delete block failed.');
+                DB::raw('UNLOCK TABLES');
+
                 return false;
             }
         }
 
-        $db->commit();
-        $db->exec("UNLOCK TABLES");
+        DB::raw('UNLOCK TABLES');
         return true;
     }
-
-
-    // delete specific block
-    public function delete_id($id)
-    {
-        global $db;
-        $trx = new Transaction();
-
-        $x = $db->row("SELECT * FROM blocks WHERE id=:id", [":id" => $id]);
-
-        if ($x === false) {
-            return false;
-        }
-        // avoid race conditions on blockchain manipulations
-        $db->beginTransaction();
-        $db->exec("LOCK TABLES blocks WRITE, accounts WRITE, transactions WRITE, mempool WRITE");
-        // reverse all transactions of the block
-        $res = $trx->reverse($x['id']);
-        if ($res === false) {
-            // rollback if you can't reverse the transactions
-            $db->rollback();
-            $db->exec("UNLOCK TABLES");
-            return false;
-        }
-        // remove the actual block
-        $res = $db->run("DELETE FROM blocks WHERE id=:id", [":id" => $x['id']]);
-        if ($res != 1) {
-            //rollback if you can't delete the block
-            $db->rollback();
-            $db->exec("UNLOCK TABLES");
-            return false;
-        }
-        // commit and release if all good
-        $db->commit();
-        $db->exec("UNLOCK TABLES");
-        return true;
-    }
-
 
     // sign a new block, used when mining
     public function sign($generator, $height, $date, $nonce, $data, $key, $difficulty, $argon)
@@ -992,68 +967,46 @@ final class Block extends Model
         $json = json_encode($data);
         $info = "{$generator}-{$height}-{$date}-{$nonce}-{$json}-{$difficulty}-{$argon}";
 
-        $signature = ec_sign($info, $key);
+        $signature = EllipticCurve::sign($info, $key);
         return $signature;
     }
 
-    // generate the sha512 hash of the block data and converts it to base58
+    // Generate the sha512 hash of the block data and converts it to base58
     public function hash($public_key, $height, $date, $nonce, $data, $signature, $difficulty, $argon)
     {
         $json = json_encode($data);
         $hash = hash("sha512", "{$public_key}-{$height}-{$date}-{$nonce}-{$json}-{$signature}-{$difficulty}-{$argon}");
-        return hex2coin($hash);
+
+        return Key::hexadecimalToAroBase58($hash);
     }
 
 
-    // exports the block data, to be used when submitting to other peers
+    // Exports the block data, to be used when submitting to other peers
     public function export($id = "", $height = "")
     {
         if (empty($id) && empty($height)) {
             return false;
         }
 
-        global $db;
-        $trx = new Transaction();
-        if (!empty($height)) {
-            $block = $db->row("SELECT * FROM blocks WHERE height=:height", [":height" => $height]);
-        } else {
-            $block = $db->row("SELECT * FROM blocks WHERE id=:id", [":id" => $id]);
-        }
+        $block = !empty($height) ? Block::findByHeight($height) : Block::find($id);
 
         if (!$block) {
             return false;
         }
-        $r = $db->run("SELECT * FROM transactions WHERE version>0 AND block=:block", [":block" => $block['id']]);
-        $transactions = [];
-        foreach ($r as $x) {
-            if ($x['version'] > 110) {
-                //internal transactions
-                continue;
-            }
-            $trans = [
-                "id"         => $x['id'],
-                "dst"        => $x['dst'],
-                "val"        => $x['val'],
-                "fee"        => $x['fee'],
-                "signature"  => $x['signature'],
-                "message"    => $x['message'],
-                "version"    => $x['version'],
-                "date"       => $x['date'],
-                "public_key" => $x['public_key'],
-            ];
-            ksort($trans);
-            $transactions[$x['id']] = $trans;
-        }
-        ksort($transactions);
-        $block['data'] = $transactions;
 
-        // the reward transaction always has version 0
-        $gen = $db->row(
-            "SELECT public_key, signature FROM transactions WHERE  version=0 AND block=:block AND message=''",
-            [":block" => $block['id']]
-        );
-        $block['public_key'] = $gen['public_key'];
-        $block['reward_signature'] = $gen['signature'];
+        $transactions = Transaction::query()->where('version', '>', 0)->where('block', $block->id)->get();
+        $block->data = $transactions;
+
+        /** @var Transaction $generator */
+        $generator = Transaction::query()
+            ->where('version', 0)
+            ->where('block', $block->id)
+            ->where('message', '')
+            ->get(['public_key', 'signature']);
+
+        $block->public_key = $generator->public_key;
+        $block->reward_signature = $generator->signature;
+
         return $block;
     }
 

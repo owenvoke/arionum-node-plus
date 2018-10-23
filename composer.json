@@ -5,6 +5,7 @@
     "type": "project",
     "require": {
         "php": "^7.2",
+        "ext-gmp": "*",
         "ext-json": "*",
         "ext-openssl": "*",
         "doctrine/dbal": "^2.8",
