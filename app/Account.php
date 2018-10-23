@@ -195,25 +195,21 @@ final class Account extends Model
         return true;
     }
 
-    public function balance(): string
+    public function getPendingBalanceAttribute(): float
     {
-        return number_format($this->balance, 8, '.', '');
-    }
+        $currentBalance = $this->balance ?? 0;
 
-    public function pendingBalance(): string
-    {
-        $currentBalance = $this->balance ?? '0.00000000';
+        // If the original balance is 0, no mempool transactions are possible
+        if ($currentBalance !== 0) {
+            /** @var Mempool $mempool */
+            $mempool = Mempool::query()->where('src', $this->id)->first(['val', 'fee']);
 
-        // if the original balance is 0, no mempool transactions are possible
-        if ($currentBalance === '0.00000000') {
-            return $currentBalance;
+            if ($mempool) {
+                return (float)($currentBalance - (($mempool->val ?? 0) + ($mempool->fee ?? 0)));
+            }
         }
 
-        /** @var Mempool $mempool */
-        $mempool = Mempool::query()->where('src', $this->id)->first(['val', 'fee']);
-        $result = $currentBalance - ($mempool->val + $mempool->fee);
-
-        return number_format($result, 8, '.', '');
+        return (float)$currentBalance;
     }
 
     public function getTransactions($limit = 100): Builder
