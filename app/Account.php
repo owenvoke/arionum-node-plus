@@ -6,19 +6,25 @@ use App\Helpers\EllipticCurve;
 use App\Helpers\Sanitisation;
 use Illuminate\Database\Eloquent\Model;
 use \Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use StephenHill\Base58;
 
 /**
  * Class Account
  *
- * @property string $id
- * @property string $public_key
- * @property string $block
- * @property float  $balance
- * @property string $alias
+ * @property string          $id
+ * @property string          $public_key
+ * @property string          $block
+ * @property float           $balance
+ * @property string          $alias
+ *
+ * @property Masternode|null $masternode
  */
 final class Account extends Model
 {
+    public const MIN_ADDRESS_LENGTH = 70;
+    public const MAX_ADDRESS_LENGTH = 128;
+
     /**
      * @var bool
      */
@@ -175,14 +181,15 @@ final class Account extends Model
         return self::query()->where('alias', $alias)->exists();
     }
 
-    public function findByAlias(string $alias): self
+    public static function findByAlias(string $alias): self
     {
         return self::query()->where('alias', strtoupper($alias))->first();
     }
 
     public function validAddress($id)
     {
-        if (strlen($id) < 70 || strlen($id) > 128) {
+        $addressLength = strlen($this->id);
+        if ($addressLength < self::MIN_ADDRESS_LENGTH || $addressLength > self::MAX_ADDRESS_LENGTH) {
             return false;
         }
         $chars = str_split('123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz');
@@ -232,8 +239,8 @@ final class Account extends Model
         });
     }
 
-    public function getMasternode(): Masternode
+    public function masternode(): HasOne
     {
-        return Masternode::query()->where('public_key', $this->public_key)->first();
+        return $this->hasOne(Masternode::class, 'public_key', 'public_key');
     }
 }
