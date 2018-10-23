@@ -5,6 +5,7 @@
     "type": "project",
     "require": {
         "php": "^7.2",
+        "ext-json": "*",
         "ext-openssl": "*",
         "doctrine/dbal": "^2.8",
         "fideloper/proxy": "^4.0",

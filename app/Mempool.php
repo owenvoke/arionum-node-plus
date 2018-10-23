@@ -50,13 +50,38 @@ final class Mempool extends Model
     ];
 
     /**
+     * @var array
+     */
+    public $appends = [
+        'confirmations',
+        'type',
+    ];
+
+    /**
      * Clear the mempool of transactions older than 1000 blocks
      * @return bool
+     * @throws \Throwable
      */
     public static function clean()
     {
         $limit = Block::current()->height - 1000;
 
         return static::query()->where('height', '<', $limit)->delete();
+    }
+
+    /**
+     * @return int
+     */
+    public function getConfirmationsAttribute(): int
+    {
+        return -1;
+    }
+
+    /**
+     * @return string
+     */
+    public function getTypeAttribute(): string
+    {
+        return 'mempool';
     }
 }
