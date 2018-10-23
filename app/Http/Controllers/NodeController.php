@@ -16,7 +16,7 @@ final class NodeController
     {
         $data = [
             'currentBlockHeight' => Block::current()->height,
-            'isPublicNode'       => config('node.public_api') ? 'yes' : 'no',
+            'isPublicNode'       => config('arionum.app.public_api') ? 'yes' : 'no',
         ];
 
         return view('index', $data);
